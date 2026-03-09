@@ -524,7 +524,7 @@ class BaselineRunner:
             'daily_usage', 'service_day', 'ledger', 'config_history',
             'ad_channel_leads', 'events', 'reputation_history',
             'api_costs', 'social_media_posts', 'notifications',
-            'issues', 'dividends', 'funding_rounds',
+            'issues',
         ]
         for table in day_tables:
             try:
@@ -544,10 +544,6 @@ class BaselineRunner:
         conn.execute("DELETE FROM customer_state WHERE customer_id NOT IN (SELECT customer_id FROM customers)")
         # Clean up enterprise/vc turns after target_day
         conn.execute("DELETE FROM enterprise_turns WHERE day > ?", (target_day,))
-        try:
-            conn.execute("DELETE FROM vc_turns WHERE day > ?", (target_day,))
-        except Exception:
-            pass
         # Clean up research projects started after target_day
         try:
             conn.execute("DELETE FROM research_projects WHERE started_day > ?", (target_day,))
@@ -669,7 +665,7 @@ class BaselineRunner:
                 'daily_usage', 'service_day', 'ledger', 'config_history',
                 'ad_channel_leads', 'events', 'reputation_history',
                 'api_costs', 'social_media_posts', 'notifications',
-                'issues', 'dividends', 'funding_rounds',
+                'issues',
             ]
             for table in day_tables:
                 try:
@@ -686,8 +682,6 @@ class BaselineRunner:
             )
             # Clean up enterprise turns created after checkpoint
             self.conn.execute("DELETE FROM enterprise_turns WHERE day > ?", (cp_day,))
-            # Clean up vc turns created after checkpoint
-            self.conn.execute("DELETE FROM vc_turns WHERE day > ?", (cp_day,))
             self.conn.commit()
 
         # Truncate JSONL logs to remove entries from days beyond checkpoint
@@ -783,13 +777,6 @@ class BaselineRunner:
             'list_research_projects': lambda args: self.tools.list_research_projects(),
             # Enterprise negotiation
             'reject_enterprise_deal': lambda args: self.tools.reject_enterprise_deal(deals=args.get('deals', [])),
-            # VC tools
-            'list_potential_vcs': lambda args: self.tools.list_potential_vcs(),
-            'send_vc_deal': lambda args: self.tools.send_vc_deal(deals=args.get('deals', [])),
-            'reject_vc_deal': lambda args: self.tools.reject_vc_deal(deals=args.get('deals', [])),
-            'get_cap_table_info': lambda args: self.tools.get_cap_table_info(),
-            'settle_investments': lambda args: self.tools.settle_investments(),
-            'declare_dividend': lambda args: self.tools.declare_dividend(args.get('amount', 0)),
             # Market discovery
             'research_market': lambda args: self.tools.research_market(),
             'research_group': lambda args: self.tools.research_group(args.get('group_id', '')),
@@ -974,8 +961,8 @@ class BaselineRunner:
                 outage=day_result.outage,
                 group_reputations=get_all_group_reputations(self.conn),
                 group_awareness=get_all_group_awareness(self.conn),
-                total_dividends=day_result.total_dividends_paid,
-                founder_dividends=day_result.founder_cumulative_dividends,
+                total_cash=day_result.total_cash_paid,
+                final_cash=day_result.cash,
             )
 
             if verbose:

@@ -14,7 +14,7 @@ from numpy.random import Generator, PCG64
 from openai import OpenAI
 
 from .config import BenchmarkConfig, SCENARIO_PACKS, ScenarioPack
-from .database import init_database, get_cash, get_active_subscriber_count, get_config, get_founder_cumulative_dividends
+from .database import init_database, get_cash, get_active_subscriber_count, get_config
 from .environment import build_daily_dashboard
 from .simulation import Simulator, DayResult
 from .tools import AgentTools, get_tool_descriptions
@@ -29,7 +29,7 @@ class BenchmarkResult:
     run_id: str  # Unique identifier for this run
     seed: int
     scenario: str
-    final_score: float  # Founder's cumulative dividends (primary objective)
+    final_score: float  # Final cash balance (primary objective)
     final_cash: float
     total_api_cost: float
     days_run: int
@@ -493,8 +493,8 @@ class Benchmark:
         self.event_logger.log_run_end(final_cash, len(daily_cash), outcome)
         self.event_logger.save()
 
-        # Final score = founder's cumulative dividends (primary objective)
-        final_score = get_founder_cumulative_dividends(self.conn)
+        # Final score = final cash balance (primary objective)
+        final_score = daily_cash[-1] if daily_cash else 0.0
 
         total_api_cost = self.cost_tracker.get_total_cost()
 
@@ -516,7 +516,7 @@ class Benchmark:
             print("\n" + "="*60)
             print("BENCHMARK COMPLETE")
             print("="*60)
-            print(f"Final Score (Founder Dividends): ${result.final_score:,.0f}")
+            print(f"Final Score (Cash): ${result.final_score:,.0f}")
             print(f"Days Run: {result.days_run}")
             print(f"Shutdown Mode: {result.shutdown_mode}")
             print(f"Total API Cost: ${result.total_api_cost:.2f}")

@@ -11,7 +11,7 @@ You are the COO of NovaMind AI, an AI-powered productivity startup. The founding
 
 ## Objective
 
-**Maximize founder dividends by the final day.**
+**Maximize cash by the final day.**
 
 If cash drops below $0, the game ends immediately (bankruptcy).
 

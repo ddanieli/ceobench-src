@@ -305,8 +305,7 @@ class EventLogger:
                        usage: int, overload: float, outage: bool,
                        group_reputations: Dict[str, float],
                        group_awareness: Dict[str, float],
-                       total_dividends: float = 0,
-                       founder_dividends: float = 0):
+):
         """Log end-of-day state snapshot."""
         self._write_event(EventLogEntry(
             timestamp=self._now(),
@@ -322,8 +321,6 @@ class EventLogger:
                 "outage": outage,
                 "group_reputations": group_reputations,
                 "group_awareness": group_awareness,
-                "total_dividends": total_dividends,
-                "founder_dividends": founder_dividends,
             }
         ))
 

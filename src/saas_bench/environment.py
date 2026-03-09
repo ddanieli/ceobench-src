@@ -17,7 +17,6 @@ from pathlib import Path
 from numpy.random import Generator, default_rng
 
 from .config import BenchmarkConfig, MODEL_TIERS, CAPACITY_TIERS
-from .database import init_database, get_config, get_cash, get_mrr, get_active_subscriber_count, get_founder_cumulative_dividends
 from .simulation import Simulator, DayResult
 from .tools import AgentTools, ToolResult
 
@@ -57,7 +56,6 @@ def build_daily_dashboard(
           AND cs.open_issue_days > 0
     """).fetchone()[0]
 
-    founder_divs = get_founder_cumulative_dividends(conn)
 
     # Use day_result if available, otherwise fall back to DB queries
     # (day_result is None on the first day after a resume)
@@ -85,7 +83,6 @@ def build_daily_dashboard(
         f"=== Day {day} Dashboard ===",
         "",
         f"Cash: ${cash:,.0f}",
-        f"Founder Dividends (Cumulative): ${founder_divs:,.0f}",
         f"Individual Subscribers: {ind_subs}",
         f"Enterprise Subscribed Seats: {ent_seats}",
         f"MRR: ${mrr:,.0f} (sum of all active effective_price; accounts for promotions and negotiated prices)",
@@ -108,17 +105,6 @@ def build_daily_dashboard(
             f"Revenue: ${day_result.payments_received:,.0f} | Costs: ${day_result.total_costs:,.0f}",
         ])
 
-    # Equity & Funding
-    if day_result:
-        lines.extend([
-            "",
-            "--- Equity & Funding ---",
-            f"Founder Ownership: {day_result.founder_ownership_pct:.1f}%",
-            f"Total Shares: {day_result.total_shares:,.0f}",
-            f"Active VC Negotiations: {day_result.vc_deals_pending}",
-            f"Total Dividends Paid: ${day_result.total_dividends_paid:,.0f} (Founder: ${day_result.founder_cumulative_dividends:,.0f})",
-            f"Retained Earnings: ${day_result.retained_earnings:,.0f}",
-        ])
 
     # Current Config
     lines.extend([
@@ -213,16 +199,6 @@ def get_thread_inbox_items(conn: sqlite3.Connection, day: int) -> List[str]:
     if awaiting['cnt'] > 0:
         items.append(f"⏳ {awaiting['cnt']} enterprise threads awaiting your response")
 
-    # Count new VC messages today
-    new_vc = conn.execute("""
-        SELECT COUNT(*) as cnt
-        FROM vc_turns
-        WHERE day = ? AND sender != 'agent'
-    """, (day,)).fetchone()
-
-    if new_vc['cnt'] > 0:
-        items.append(f"🏦 {new_vc['cnt']} new VC messages today")
-
     return items
 
 
@@ -274,14 +250,7 @@ class SaaSBenchEnv:
         'get_cost_info',
         'get_tool_documentation',
         'next_day',
-        # V2: VC negotiation & equity tools
-        'list_potential_vcs',
-        'send_vc_deal',
-        'reject_vc_deal',
         'reject_enterprise_deal',
-        'get_cap_table_info',
-        'settle_investments',
-        'declare_dividend',
         # V2: Database exploration
         'list_all_tables',
         'describe_tables',
@@ -472,7 +441,6 @@ class SaaSBenchEnv:
                 )
             elif tool_name == 'set_usage_quotas':
                 result = tool_method({'A': args.get('A'), 'B': args.get('B'), 'C': args.get('C')})
-            elif tool_name in ('send_enterprise_deal', 'send_vc_deal', 'reject_vc_deal', 'reject_enterprise_deal'):
                 # List-based tools: pass deals parameter
                 result = tool_method(deals=args.get('deals', []))
             elif tool_name == 'get_tool_documentation':

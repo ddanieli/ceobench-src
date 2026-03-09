@@ -17,7 +17,6 @@ Modules:
     marketing      — Ad spend, channel allocation, targeting, lead promotions
     infrastructure — Capacity tiers, cost info
     enterprise     — Enterprise deal negotiation
-    vc             — VC fundraising, cap table, dividends
     market         — Market discovery, group research & insights
     research       — R&D research projects
     analytics      — Social posts, targeted ops/dev spend, rationale logging
@@ -53,7 +52,6 @@ __all__ = [
     'marketing',
     'infrastructure',
     'enterprise',
-    'vc',
     'market',
     'research',
     'analytics',

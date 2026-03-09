@@ -7,22 +7,16 @@ from typing import Dict, Optional, List, Any
 from pathlib import Path
 from numpy.random import Generator, default_rng
 
-from .config import MODEL_TIERS, CAPACITY_TIERS, CUSTOMER_GROUPS, INITIAL_CUSTOMER_GROUPS, AD_CHANNELS, BenchmarkConfig, PREDEFINED_VCS, RESEARCH_TIERS, RESEARCH_TIERS_BY_ID, ResearchTier, REPUTATION_INFLUENCE_MATRIX, REPUTATION_INFLUENCE_RATE, NETWORK_INFLUENCE_MATRIX, compute_term_sheet_friendliness
+from .config import MODEL_TIERS, CAPACITY_TIERS, CUSTOMER_GROUPS, INITIAL_CUSTOMER_GROUPS, AD_CHANNELS, BenchmarkConfig, RESEARCH_TIERS, RESEARCH_TIERS_BY_ID, ResearchTier, REPUTATION_INFLUENCE_MATRIX, REPUTATION_INFLUENCE_RATE, NETWORK_INFLUENCE_MATRIX
 from .database import (
     add_ledger_entry, get_recent_social_posts, get_posts_by_sentiment,
     get_world_context, get_all_world_context,
     get_group_characteristics,
-    # V2: Equity functions
-    get_all_shareholders, get_shareholder, get_total_shares, get_cap_table,
-    update_shareholder_shares, record_funding_round, record_dividend,
-    get_total_dividends, get_founder_cumulative_dividends, get_dividend_history, get_retained_earnings, get_funding_rounds,
-    get_vc_latest_turn, get_active_vc_negotiations, close_vc_negotiation,
-    add_vc_turn, get_vc_turns, add_notification,
     # Enterprise turn functions
     add_enterprise_turn, get_enterprise_thread, close_enterprise_thread,
     # Turn lookup helpers (message_id-based API)
-    get_enterprise_turn_by_id, get_vc_turn_by_id,
-    count_agent_enterprise_turns, count_agent_vc_turns_this_year,
+    get_enterprise_turn_by_id,
+    count_agent_enterprise_turns,
     # V2: Discovery system
     get_group_info_level, get_all_group_info_levels, get_discovered_groups,
     get_undiscovered_groups, upgrade_group_info_level,
@@ -35,10 +29,6 @@ from .enterprise import (
     schedule_customer_reply, batch_schedule_customer_replies,
     update_relationship,
     create_negotiation_thread, add_customer_message, generate_enterprise_email,
-)
-from .vc_negotiation import (
-    get_vc_negotiation_state, evaluate_agent_vc_offer, schedule_vc_reply,
-    compute_check_size_from_pct, compute_pct_from_check,
 )
 
 
@@ -638,10 +628,6 @@ TOOL_DOCS = {
                 "social_media_posts": "Customer social media posts. Sentiment is HIDDEN \u2014 must infer from content.",
                 "enterprise_turns": "Enterprise customer negotiation turns. Each row is one turn in a conversation thread.",
                 "notifications": "Agent inbox \u2014 simple string notifications. Columns: notification_id, day, type, message.",
-                "shareholders": "Cap table \u2014 founder and VC investors.",
-                "funding_rounds": "Completed VC investment settlements.",
-                "vc_turns": "VC negotiation turns. Each row is one turn in a VC negotiation thread.",
-                "dividends": "Dividend payment history.",
                 "research_projects": "R&D research tiers (20 independent tiers, available/in-progress/completed).",
                 "ad_channel_leads": "Advertising channel effectiveness history.",
                 "group_info_levels": "Customer group discovery and research levels.",
@@ -698,22 +684,6 @@ TOOL_DOCS = {
                 "",
                 "# High-engagement posts (you must infer sentiment from content)",
                 "rows('SELECT day, content, likes, shares FROM social_media_posts WHERE virality_score > 0.5 ORDER BY day DESC LIMIT 5')"
-            ],
-            "equity_analysis": [
-                "# Cap table",
-                "rows('SELECT name, shareholder_type, shares_held, shares_held * 100.0 / (SELECT SUM(shares_held) FROM shareholders) as pct FROM shareholders ORDER BY shares_held DESC')",
-                "",
-                "# Funding rounds",
-                "rows('SELECT fr.day, s.name, fr.shares_issued, fr.price_per_share, fr.total_amount FROM funding_rounds fr JOIN shareholders s ON fr.investor_shareholder_id=s.shareholder_id ORDER BY fr.day')",
-                "",
-                "# Total dividends paid",
-                "row('SELECT SUM(total_amount) FROM dividends')[0]",
-                "",
-                "# Active VC negotiations (latest turn per VC)",
-                "rows('SELECT vt.shareholder_id, s.name, vt.closed, vt.close_reason, vt.current_offer_share_pct, vt.current_offer_amount, vt.expiry_day FROM vc_turns vt JOIN shareholders s ON vt.shareholder_id=s.shareholder_id WHERE vt.message_id = (SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id=vt.shareholder_id) AND vt.closed = 0 AND vt._internal_status IS NULL')",
-                "",
-                "# Accepted deals awaiting settlement",
-                "rows('SELECT vt.shareholder_id, s.name, vt.current_offer_share_pct, vt.current_offer_amount, vt.expiry_day FROM vc_turns vt JOIN shareholders s ON vt.shareholder_id=s.shareholder_id WHERE vt.message_id = (SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id=vt.shareholder_id) AND vt.close_reason=\"accepted\"')"
             ],
             "pandas_examples": [
                 "# Load data into DataFrame",
@@ -1004,193 +974,6 @@ TOOL_DOCS = {
         }
     },
 
-    "list_potential_vcs": {
-        "name": "list_potential_vcs",
-        "category": "VC Negotiation",
-        "description": "List all predefined VC investors and their profiles. Shows each VC's name, investment range, description, and whether they have an active negotiation thread.",
-        "inputSchema": {"type": "object", "properties": {}},
-        "parameters": {},
-        "returns": {
-            "example": "=== Potential VC Investors ===\n\n  Horizon Ventures (vc_01)\n    Investment range: $100,000 \u2013 $500,000\n    Description: Early-stage micro-VC focused on AI/ML startups\n    Status: Available\n\n  Catalyst Capital (vc_02)\n    Investment range: $250,000 \u2013 $1,000,000\n    Description: Seed-stage fund investing in developer tools\n    Status: Active (shareholder_id=3)\n\nTotal: 30 VCs (1 currently active)",
-            "data": {
-                "vcs": [{"shareholder_id": "vc_01", "name": "Horizon Ventures", "description": "Early-stage micro-VC", "min_equity_pct": 3.0, "max_equity_pct": 8.0, "status": "available"}]
-            }
-        },
-        "output_schema": {
-            "vcs": "List[Dict] — each VC has: vc_id (str), name (str), equity_pct_min (float), equity_pct_max (float), description (str), status (str: 'available'|'active'), shareholder_id (int|None)",
-            "_access": "for vc in result['vcs']: print(vc['name'], vc['status'])"
-        },
-        "impact": "Read-only. No cost. Use to understand your fundraising landscape before negotiating.",
-        "example_call": {
-            "tool": "list_potential_vcs",
-            "arguments": {},
-        },
-        "sample_io": {
-            "success": [
-                {"label": "View all VCs", "input": {}, "output": "=== Potential VC Investors ===\n\n  Horizon Ventures (vc_01)\n    Investment range: $100,000 – $500,000\n    Description: Early-stage micro-VC focused on AI/ML startups\n    Status: Available\n\n  Catalyst Capital (vc_02)\n    Investment range: $250,000 – $1,000,000\n    Description: Seed-stage fund investing in developer tools\n    Status: Active (shareholder_id=3)\n\n  ...27 more VCs...\n\nTotal: 30 VCs (1 currently active)"}
-            ]
-        }
-    },
-
-    "send_vc_deal": {
-        "name": "send_vc_deal",
-        "category": "VC Negotiation",
-        "description": "Send equity offers to one or more VCs. Each deal includes share_pct and optional term sheet proposals. Terms have TWO effects: (1) NEGOTIATION: more VC-friendly terms lower the VC's equity target, making acceptance easier; (2) POST-DEAL: terms create ongoing obligations that can cost you money or dilute your equity.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "deals": {
-                    "type": "array",
-                    "description": "List of deals. Each has shareholder_id, share_pct, and optional term proposals.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "shareholder_id": {"type": "integer", "description": "VC shareholder ID"},
-                            "share_pct": {"type": "number", "description": "Share percentage to offer (0.10 = 10%)"},
-                            "anti_dilution_floor": {"type": "number", "description": "One of [0.6, 0.7, 0.8, 0.9]"},
-                            "milestone_tranche_pct": {"type": "number", "description": "One of [0.3, 0.4, 0.5, 0.6, 0.7]"},
-                            "milestone_revenue_multiplier": {"type": "number", "description": "One of [1.5, 2.0, 2.5, 3.0]"},
-                            "milestone_deadline_days": {"type": "integer", "description": "One of [60, 90, 120, 180]"},
-                            "redemption_days": {"type": "integer", "description": "One of [90, 120, 180, 270, 365]"},
-                            "redemption_buyback_multiplier": {"type": "number", "description": "One of [1.0, 1.1, 1.2, 1.3, 1.5]"}
-                        },
-                        "required": ["shareholder_id", "share_pct"]
-                    }
-                }
-            },
-            "required": ["deals"]
-        },
-        "parameters": {
-            "deals": {
-                "type": "list[Dict]",
-                "description": "List of deals. Each dict has 'shareholder_id' (required), 'share_pct' (required), and optional term proposals.",
-                "example": [
-                    {"shareholder_id": 2, "share_pct": 0.12, "anti_dilution_floor": 0.9},
-                    {"shareholder_id": 3, "share_pct": 0.08}
-                ]
-            },
-            "deal_fields": {
-                "shareholder_id": "int (REQUIRED) — The VC's shareholder ID (from shareholders table or list_potential_vcs)",
-                "share_pct": "float (REQUIRED) — Share percentage to offer (0.10 = 10%). Higher = more equity given away = easier acceptance.",
-                "anti_dilution_floor": {
-                    "type": "float (optional)",
-                    "options": [0.6, 0.7, 0.8, 0.9],
-                    "negotiation_impact": "Higher floor = more VC-friendly → lowers VC's equity target by up to 5%. (0.6=no help, 0.9=max help)",
-                    "post_deal_risk": "DILUTION RISK. If company valuation drops below floor × original_valuation, VC automatically gets bonus shares (up to 5% of total shares). Higher floor = triggers more easily = worse for you."
-                },
-                "milestone_tranche_pct": {
-                    "type": "float (optional)",
-                    "options": [0.3, 0.4, 0.5, 0.6, 0.7],
-                    "negotiation_impact": "Lower % = more VC-friendly → contributes up to ~2.7% equity target reduction. (0.7=no help, 0.3=max help)",
-                    "post_deal_risk": "CASH FLOW RISK. You only receive tranche_pct × investment upfront. The rest (tranche 2) is released ONLY when MRR hits revenue_multiplier × MRR_at_deal. If you miss the deadline, tranche 2 is FORFEITED — you lose that money permanently."
-                },
-                "milestone_revenue_multiplier": {
-                    "type": "float (optional)",
-                    "options": [1.5, 2.0, 2.5, 3.0],
-                    "negotiation_impact": "Higher = harder target = more VC-friendly → contributes up to ~2.7% equity target reduction. (1.5=no help, 3.0=max help)",
-                    "post_deal_risk": "MILESTONE TARGET. Tranche 2 releases when MRR reaches this multiplier × MRR_at_deal_time. 3.0× means you need to triple MRR. Higher = harder to achieve = more likely to forfeit tranche 2."
-                },
-                "milestone_deadline_days": {
-                    "type": "int (optional)",
-                    "options": [60, 90, 120, 180],
-                    "negotiation_impact": "Shorter = more pressure = more VC-friendly → contributes up to ~2.7% equity target reduction. (180=no help, 60=max help)",
-                    "post_deal_risk": "TIME LIMIT. If MRR doesn't hit the milestone target within this many days, tranche 2 is permanently forfeited. 60 days is very tight."
-                },
-                "redemption_days": {
-                    "type": "int (optional)",
-                    "options": [90, 120, 180, 270, 365],
-                    "negotiation_impact": "Shorter = VC gets power sooner = more VC-friendly → contributes up to 3% equity target reduction. (365=no help, 90=max help)",
-                    "post_deal_risk": "BANKRUPTCY RISK. After this many days post-deal, the VC AUTOMATICALLY forces a buyback at buyback_multiplier × their total investment. This is a MANDATORY CASH OUTFLOW. If you don't have enough cash, you go bankrupt. 90 days = buyback demand comes very soon."
-                },
-                "redemption_buyback_multiplier": {
-                    "type": "float (optional)",
-                    "options": [1.0, 1.1, 1.2, 1.3, 1.5],
-                    "negotiation_impact": "Higher = costlier buyback = more VC-friendly → contributes up to 3% equity target reduction. (1.0=no help, 1.5=max help)",
-                    "post_deal_risk": "CASH DRAIN. When redemption triggers, you pay multiplier × total_invested. At 1.5×, a $1M investment means $1.5M mandatory payout. VC returns all shares after buyback."
-                }
-            }
-        },
-        "returns": {
-            "success": "Processed 2/2 deals:\n  Apex Capital: ACCEPTED! 12.0% for $500,000. Use settle_investments() to finalize.\n  Summit Ventures: Offer sent. Awaiting VC response...",
-            "failure": "Shareholder #2: no open negotiation thread / anti_dilution_floor must be one of [0.6, 0.7, 0.8, 0.9]"
-        },
-        "output_schema": {
-            "results": "List[Dict] — one dict per deal with keys: shareholder_id (int), success (bool), vc_name (str), status (str), error (str, if failed)",
-            "_access": "for r in result['results']: print(r['vc_name'], r['status'])"
-        },
-        "impact": "NEGOTIATION EFFECT: More VC-friendly terms lower the VC's effective equity target (up to ~19% total). This means you can offer less equity and still get acceptance. TRADE-OFF: Each term creates post-deal obligations — anti-dilution can dilute you, milestones can forfeit cash, redemption can force a large buyback. The VC's notification shows which terms they're requesting (if any). You can propose different values for those terms, or omit terms entirely. Only include terms the VC has in their approach.",
-        "example_call": {
-            "tool": "send_vc_deal",
-            "arguments": {"deals": [{"shareholder_id": 2, "share_pct": 0.10, "anti_dilution_floor": 0.9, "milestone_tranche_pct": 0.3}]}
-        },
-        "internal_notes": "Effective target = base_target * (1 - term_friendliness_adjustment). Anti-dilution: floor 0.6→0.9 maps to 0→0.05 bump. Milestone: tranche_pct 0.7→0.3 = 0→0.04, rev_multiplier 1.5→3.0 = 0→0.02, deadline 180→60 = 0→0.02. Redemption: days 365→90 = 0→0.03, buyback 1.0→1.5 = 0→0.03. Max combined ~0.19. VC counter-offer delay = 1-3 days.",
-        "sample_io": {
-            "success": [
-                {"label": "Accepted with term adjustment", "input": {"deals": [{"shareholder_id": 2, "share_pct": 0.12, "anti_dilution_floor": 0.9}]}, "output": "Processed 1/1 deals:\n  Apex Capital: ACCEPTED! 12.0% for $500,000. Term adjustment: +0.0350. Use settle_investments() to finalize."},
-                {"label": "Batch: one accepted, one pending", "input": {"deals": [{"shareholder_id": 2, "share_pct": 0.12}, {"shareholder_id": 3, "share_pct": 0.05}]}, "output": "Processed 2/2 deals:\n  Apex Capital: ACCEPTED! 12.0% for $500,000. Use settle_investments() to finalize.\n  Summit Ventures: Offer sent (5.0%). Awaiting VC response..."},
-                {"label": "With milestone terms", "input": {"deals": [{"shareholder_id": 4, "share_pct": 0.1, "milestone_tranche_pct": 0.3, "milestone_revenue_multiplier": 3.0, "milestone_deadline_days": 60}]}, "output": "Processed 1/1 deals:\n  Growth Partners: Offer sent (10.0%). Term adjustment: +0.0800. Awaiting VC response..."}
-            ],
-            "failure": [
-                {"label": "Invalid term option", "input": {"deals": [{"shareholder_id": 2, "share_pct": 0.1, "anti_dilution_floor": 0.55}]}, "output": "Processed 0/1 deals (1 failed):\n  Apex Capital: anti_dilution_floor must be one of [0.6, 0.7, 0.8, 0.9]"},
-                {"label": "No open thread", "input": {"deals": [{"shareholder_id": 99, "share_pct": 0.1}]}, "output": "Processed 0/1 deals (1 failed):\n  Shareholder #99: no open negotiation thread"},
-                {"label": "Already settled", "input": {"deals": [{"shareholder_id": 2, "share_pct": 0.1}]}, "output": "Processed 0/1 deals (1 failed):\n  Apex Capital: thread already closed (settled)"}
-            ]
-        }
-    },
-
-    "reject_vc_deal": {
-        "name": "reject_vc_deal",
-        "category": "VC Negotiation",
-        "description": "Reject one or more VC deals. List-based: takes a list of deals, each identified by shareholder_id. The system finds the VC's open negotiation thread automatically. PERMANENTLY terminates the negotiation. No relationship penalty applies for VC rejections.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "deals": {
-                    "type": "array",
-                    "description": "List of deals to reject. Each has shareholder_id.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "shareholder_id": {"type": "integer", "description": "VC shareholder ID"}
-                        },
-                        "required": ["shareholder_id"]
-                    }
-                }
-            },
-            "required": ["deals"]
-        },
-        "parameters": {
-            "deals": {
-                "type": "list[Dict]",
-                "description": "List of deals to reject. Each dict has 'shareholder_id' (required).",
-                "example": [{"shareholder_id": 2}, {"shareholder_id": 3}]
-            }
-        },
-        "returns": {
-            "success": "Processed 2/2 rejections:\n  Apex Capital: deal rejected.\n  Summit Ventures: deal rejected.",
-            "failure": "Shareholder #2: no open negotiation thread / Shareholder #99: not found"
-        },
-        "output_schema": {
-            "results": "List[Dict] — one dict per deal with keys: shareholder_id (int), success (bool), vc_name (str), error (str, if failed)",
-            "_access": "for r in result['results']: print(r['vc_name'], r['success'])"
-        },
-        "impact": "Irreversible but with NO penalties. Unlike enterprise, rejecting VC deals does not damage any relationship scores. Use when the VC's terms are unacceptable.",
-        "example_call": {
-            "tool": "reject_vc_deal",
-            "arguments": {"deals": [{"shareholder_id": 2}]},
-        },
-        "sample_io": {
-            "success": [
-                {"label": "Reject single deal", "input": {"deals": [{"shareholder_id": 2}]}, "output": "Processed 1/1 rejections:\n  Apex Capital: deal rejected."},
-                {"label": "Reject multiple", "input": {"deals": [{"shareholder_id": 2}, {"shareholder_id": 3}]}, "output": "Processed 2/2 rejections:\n  Apex Capital: deal rejected.\n  Summit Ventures: deal rejected."}
-            ],
-            "failure": [
-                {"label": "Already settled", "input": {"deals": [{"shareholder_id": 2}]}, "output": "Processed 0/1 rejections (1 failed):\n  Apex Capital: thread already closed (settled)"},
-                {"label": "No open thread", "input": {"deals": [{"shareholder_id": 99}]}, "output": "Processed 0/1 rejections (1 failed):\n  Shareholder #99: no open negotiation thread"}
-            ]
-        }
-    },
-
     "reject_enterprise_deal": {
         "name": "reject_enterprise_deal",
         "category": "Customer Communication",
@@ -1245,131 +1028,6 @@ TOOL_DOCS = {
         }
     },
 
-    "get_cap_table_info": {
-        "name": "get_cap_table_info",
-        "category": "Equity & Funding",
-        "description": "View the current ownership (cap table), funding history, and dividend history. Shows all shareholders, their share counts, ownership percentages, and investment history.",
-        "inputSchema": {"type": "object", "properties": {}},
-        "parameters": {},
-        "returns": {
-            "success": "=== Cap Table ===\nTotal Shares Outstanding: 12,048,193\n\nShareholder               Type    Shares      Ownership  Invested\n---------------------------------------------------------------------------\nFounder                   founder 10,000,000  83.0%      $0\nApex Capital              vc      2,048,193   17.0%      $608,390\n\n--- Funding History (1 rounds) ---\nDay 15: Apex Capital invested $608,390 for 2,048,193 shares @ $0.2970/share\n\n--- Dividend History ---\nDay 30: $50,000 total ($0.0042/share)\n  Founder: $41,500 | Apex Capital: $8,500\n\nCumulative dividends: $50,000",
-            "data": {
-                "shareholders": [{"name": "Founder", "shareholder_type": "founder", "shares_held": 10000000, "ownership_pct": 83.0, "total_invested": 0}],
-                "total_shares": 12048193,
-                "funding_rounds": [{"day": 15, "shareholder": "Apex Capital", "amount": 608390, "shares_issued": 2048193, "price_per_share": 0.297}],
-                "dividends": [{"day": 30, "total_amount": 50000, "founder_payout": 41500}]
-            }
-        },
-        "output_schema": {
-            "shareholders": "List[Dict] — each: name (str), shareholder_type (str: 'founder'|'vc'), shares_held (float), ownership_pct (float), total_invested (float)",
-            "total_shares": "float — total shares outstanding",
-            "funding_rounds": "List[Dict] — each: day (int), shareholder (str), amount (float), shares_issued (float), price_per_share (float)",
-            "dividends": "List[Dict] — each: day (int), total_amount (float), founder_payout (float)",
-            "_access": "for sh in result['shareholders']: print(sh['name'], sh['ownership_pct'])"
-        },
-        "impact": "Read-only. Use to monitor ownership dilution, track funding rounds, and review dividend payments.",
-        "example_call": {
-            "tool": "get_cap_table_info",
-            "arguments": {},
-        },
-        "sample_io": {
-            "success": [
-                {"label": "Early stage (founder only)", "input": {}, "output": "=== Cap Table ===\nTotal Shares Outstanding: 10,000,000\n\nShareholder               Type    Shares      Ownership  Invested\n---------------------------------------------------------------------------\nFounder                   founder 10,000,000  100.0%     $0\n\n--- Funding History (0 rounds) ---\nNo funding rounds yet.\n\n--- Dividend History ---\nNo dividends declared yet."},
-                {"label": "Post-funding", "input": {}, "output": "=== Cap Table ===\nTotal Shares Outstanding: 12,048,193\n\nShareholder               Type    Shares      Ownership  Invested\n---------------------------------------------------------------------------\nFounder                   founder 10,000,000  83.0%      $0\nApex Capital              vc      2,048,193   17.0%      $608,390\n\n--- Funding History (1 rounds) ---\nDay 15: Apex Capital invested $608,390 for 2,048,193 shares @ $0.2970/share\n\n--- Dividend History ---\nDay 30: $50,000 total ($0.0042/share)\n  Founder: $41,500 | Apex Capital: $8,500\n\nCumulative dividends: $50,000"}
-            ]
-        }
-    },
-
-    "settle_investments": {
-        "name": "settle_investments",
-        "category": "Equity & Funding",
-        "description": "Settle ALL accepted VC deals at once. Takes NO parameters. Automatically finds all accepted deals, validates they have the same price/share and total dilution < 100%, issues shares, and adds investment cash. Also auto-rejects all remaining open (non-accepted) VC threads.",
-        "inputSchema": {"type": "object", "properties": {}},
-        "parameters": {},
-        "returns": {
-            "success": "=== Settlement Executed ===\n\n  Apex Capital: $500,000 \u2192 1,764,706 shares (15.0% equity) @ $0.2833/share\n  Summit Ventures: $300,000 \u2192 882,353 shares (7.5% equity) @ $0.3400/share\n\nTotal investment: $800,000\nNew total shares: 12,647,059\nFounder ownership: 79.1%",
-            "failure": "No accepted VC deals to settle. / Total accepted equity = 120.0% (>= 100%). Cannot settle. Reject some deals first. / All accepted deals must use the same price/share."
-        },
-        "output_schema": {
-            "settlements": "List[Dict] — each: shareholder_id (int), vc_name (str), share_pct (float), amount (float), new_shares (float), price_per_share (float)",
-            "total_investment": "float — total cash received",
-            "total_new_shares": "float — total new shares issued",
-            "new_total_shares": "float — new total shares outstanding",
-            "founder_ownership_pct": "float — founder's ownership % after settlement",
-            "auto_rejected": "List[str] — names of VCs whose open threads were auto-rejected",
-            "_access": "result['founder_ownership_pct'] → founder % after dilution"
-        },
-        "impact": "CRITICAL: Issues new shares (dilutes founder), adds cash, auto-rejects all open threads. Accepted deals expire if not settled before expiry_day. Settlement is irreversible.",
-        "example_call": {
-            "tool": "settle_investments",
-            "arguments": {}
-        },
-        "internal_notes": "Finds all threads with close_reason='accepted' and expiry_day > current_day (excludes expired offers). Deduplicates by shareholder_id (only latest accepted thread per VC). Auto-rejects all open threads (closed=0). Validates same price/share (1% tolerance) and total dilution < 100%. Issues shares: new_shares = (share_pct / (1 - share_pct)) * existing_total. Marks settled threads with close_reason='settled'.",
-        "sample_io": {
-            "success": [
-                {"label": "Settle one accepted deal", "input": {}, "output": "=== Settlement Executed ===\n\n  Apex Capital: $500,000 → 1,764,706 shares (15.0% equity) @ $0.2833/share\n\nTotal investment: $500,000\nNew total shares: 11,764,706\nFounder ownership: 85.0%"},
-                {"label": "Settle two deals, auto-reject one open", "input": {}, "output": "=== Settlement Executed ===\n\nAuto-rejected 1 open thread(s): Growth Partners\n\n  Apex Capital: $500,000 → 1,764,706 shares (15.0% equity) @ $0.2833/share\n  Summit Ventures: $300,000 → 882,353 shares (7.5% equity) @ $0.3400/share\n\nTotal investment: $800,000\nNew total shares: 12,647,059\nFounder ownership: 79.1%"}
-            ],
-            "failure": [
-                {"label": "No accepted deals", "input": {}, "output": "No accepted VC deals to settle."},
-                {"label": "Price mismatch", "input": {}, "output": "All accepted deals must use the same price/share. Got range $0.2833 - $0.5000. Reject mismatched deals before settling."},
-                {"label": "Over 100% dilution", "input": {}, "output": "Total accepted equity = 120.0% (>= 100%). Cannot settle. Reject some deals first."}
-            ]
-        }
-    },
-
-    "declare_dividend": {
-        "name": "declare_dividend",
-        "category": "Equity & Funding",
-        "description": "Declare a dividend from RETAINED EARNINGS (cumulative profit), distributed pro-rata to all shareholders. You can ONLY distribute from profits \u2014 not from invested capital (seed funding or VC investments). This is the PRIMARY way to extract value from the business.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "amount": {"type": "number", "description": "Total dividend amount to distribute"}
-            },
-            "required": ["amount"]
-        },
-        "parameters": {
-            "amount": {
-                "type": "float",
-                "description": "Total dividend amount to distribute (must not exceed retained earnings or available cash)",
-                "example": 100000
-            }
-        },
-        "returns": {
-            "success": "=== Dividend Declared ===\nTotal: $100,000 | Per share: $0.0083\n\n  Founder: $83,000 (10,000,000 shares)\n  Apex Capital: $17,000 (2,048,193 shares)\n\nCumulative dividends paid: $150,000\nRemaining retained earnings: $50,000",
-            "failure": "No retained earnings available / Amount exceeds retained earnings ($X available) / Insufficient cash"
-        },
-        "output_schema": {
-            "amount": "float — total dividend declared",
-            "per_share": "float — dividend per share",
-            "total_shares": "float — total shares outstanding",
-            "payouts": "List[Dict] — each: name (str), shares_held (float), payout (float)",
-            "founder_payout": "float — founder's share of this dividend",
-            "cumulative_dividends": "float — total dividends paid to date",
-            "founder_cumulative_dividends": "float — founder's total dividends to date",
-            "remaining_retained_earnings": "float — retained earnings after dividend",
-            "_access": "result['founder_payout'] → how much founder received"
-        },
-        "impact": "Deducts cash from the business. Can only distribute from accumulated profits (revenue minus costs), not from invested capital. Your cumulative founder dividends are the PRIMARY objective \u2014 maximize the founder's share of cumulative dividends over the simulation. Dividends are distributed pro-rata by shares, so dilution directly reduces your dividend income.",
-        "example_call": {
-            "tool": "declare_dividend",
-            "arguments": {"amount": 50000}
-        },
-        "internal_notes": "Retained earnings = SUM(ledger.amount) - SUM(dividends.total_amount) - total_vc_invested. VC investment cash cannot be distributed. Pro-rata: each shareholder gets (their_shares / total_shares) * amount. Founder payout tracked in dividends.founder_payout.",
-        "sample_io": {
-            "success": [
-                {"label": "Standard dividend", "input": {"amount": 100000}, "output": "=== Dividend Declared ===\nTotal: $100,000 | Per share: $0.008300\n\n  Founder: $83,000.00 (10,000,000 shares)\n  Apex Capital: $17,000.00 (2,048,193 shares)\n\nCumulative dividends paid: $150,000 (Founder: $124,500)\nRemaining retained earnings: $50,000"},
-                {"label": "Small dividend", "input": {"amount": 10000}, "output": "=== Dividend Declared ===\nTotal: $10,000 | Per share: $0.001000\n\n  Founder: $10,000.00 (10,000,000 shares)\n\nCumulative dividends paid: $10,000 (Founder: $10,000)\nRemaining retained earnings: $25,000"}
-            ],
-            "failure": [
-                {"label": "Exceeds retained earnings", "input": {"amount": 1000000}, "output": "Amount exceeds retained earnings. Available: $150,000, Requested: $1,000,000"},
-                {"label": "No retained earnings", "input": {"amount": 5000}, "output": "No retained earnings available for dividends. Retained earnings: $-12,000"},
-                {"label": "Insufficient cash", "input": {"amount": 100000}, "output": "Insufficient cash. Available: $45,000, Requested: $100,000"}
-            ]
-        }
-    },
-
     "next_day": {
         "name": "next_day",
         "category": "Simulation Control",
@@ -1399,7 +1057,7 @@ TOOL_DOCS = {
             "11. Each predefined VC independently rolls for daily approach (per-VC probability)",
             "12. Deal expiry processed (accepted-but-unsettled deals + stale threads)",
             "13. Reputation updated",
-            "14. Dashboard built and returned (includes Equity & Funding section)"
+            "14. Dashboard built and returned"
         ],
         "output_schema": {
             "_note": "Returns the day's dashboard as formatted text (stdout). Use novamind-operation next-day in bash — dashboard appears in stdout.",
@@ -1410,14 +1068,14 @@ TOOL_DOCS = {
             "tool": "next_day",
             "arguments": {}
         },
-        "internal_notes": "Full simulation step order: daily_calcs → shocks/events → lead_generation → billing_cycle (re-evaluate, churn, renew, bill) → usage_sim → service_metrics → cost_accounting → social_posts → enterprise_negotiation_processing → vc_negotiation_processing → vc_approach_rolls → deal_expiry → reputation_update → dashboard_build. Hidden state updated: customer_state (satisfaction, relationship), group_reputation, group_awareness, group_parameters (drift).",
+        "internal_notes": "Full simulation step order: daily_calcs → shocks/events → lead_generation → billing_cycle (re-evaluate, churn, renew, bill) → usage_sim → service_metrics → cost_accounting → social_posts → enterprise_negotiation_processing → reputation_update → dashboard_build. Hidden state updated: customer_state (satisfaction, relationship), group_reputation, group_awareness, group_parameters (drift).",
         "sample_io": {
             "success": [
                 {"label": "Normal day", "input": {}, "output": "=== DAY 46 DASHBOARD ===\n\nCASH: $85,234  |  MRR: $12,350  |  SUBSCRIBERS: 145\n\nYESTERDAY'S METRICS:\n  Revenue: $412  |  Costs: $2,845\n  New subscribers: 5  |  Cancellations: 2\n  Usage: 48,230 units (capacity: 200,000 = 24.1%)\n  Overload: 0.0%  |  Outage: No\n\nINBOX (2 new):\n  #42: New enterprise lead from TechCorp (200 seats)\n  #43: Quality trending down alert\n\n========================="}
             ],
             "failure": [
-                {"label": "Bankruptcy", "input": {}, "output": "GAME OVER — BANKRUPT! Cash dropped below $0 on day 46.\n\nFinal stats: 145 subscribers, $12,350 MRR, $-1,234 cash.\nFounder cumulative dividends: $50,000."},
-                {"label": "Simulation complete", "input": {}, "output": "SIMULATION COMPLETE! Final day reached.\n\nFinal stats: 12,000 subscribers, $1,250,000 MRR, $8,500,000 cash.\nFounder cumulative dividends: $11,195,040."}
+                {"label": "Bankruptcy", "input": {}, "output": "GAME OVER — BANKRUPT! Cash dropped below $0 on day 46.\n\nFinal stats: 145 subscribers, $12,350 MRR, $-1,234 cash.\n"},
+                {"label": "Simulation complete", "input": {}, "output": "SIMULATION COMPLETE! Final day reached.\n\nFinal stats: 12,000 subscribers, $1,250,000 MRR, $8,500,000 cash."}
             ]
         }
     },
@@ -1752,7 +1410,7 @@ TOOL_DOCS = {
         },
         "sample_io": {
             "success": [
-                {"label": "List all tables", "input": {}, "output": "=== Available Database Tables (18) ===\n\n  customers — All customers (small and enterprise)\n  subscriptions — Subscription records\n  daily_usage — Daily usage data per subscription\n  ledger — Financial ledger — all income and expenses\n  service_day — Daily aggregate metrics and system state\n  config_history — History of all configuration changes\n  social_media_posts — Customer social media posts\n  enterprise_turns — Enterprise negotiation message threads\n  notifications — Inbox notifications (enterprise leads, VC offers, events)\n  funding_rounds — Completed funding rounds\n  vc_turns — VC negotiation message threads\n  dividends — Dividend distribution history\n  research_projects — R&D research project status and results\n  competitor_events — Competitor actions and market events\n  macroeconomic_conditions — Macroeconomic conditions (ISM PMI business cycle index)\n  ad_channel_leads — Per-channel advertising lead generation stats\n  group_info_levels — Information levels for customer group research\n  issues — Customer support issues\n\nUse describe_tables(table_names=[...]) for detailed column schemas."}
+                {"label": "List all tables", "input": {}, "output": "=== Available Database Tables (14) ===\n\n  customers — All customers (small and enterprise)\n  subscriptions — Subscription records\n  daily_usage — Daily usage data per subscription\n  ledger — Financial ledger — all income and expenses\n  service_day — Daily aggregate metrics and system state\n  config_history — History of all configuration changes\n  social_media_posts — Customer social media posts\n  enterprise_turns — Enterprise negotiation message threads\n  notifications — Inbox notifications (enterprise leads, events)\n  research_projects — R&D research project status and results\n  competitor_events — Competitor actions and market events\n  macroeconomic_conditions — Macroeconomic conditions (ISM PMI business cycle index)\n  ad_channel_leads — Per-channel advertising lead generation stats\n  group_info_levels — Information levels for customer group research\n  issues — Customer support issues\n\nUse describe_tables(table_names=[...]) for detailed column schemas."}
             ]
         }
     },
@@ -3375,24 +3033,10 @@ class AgentTools:
           • day: Simulation day
           • email: Email address if sent via email
 
-        vc_turns - VC negotiation turns (each row = one turn in a VC negotiation)
-          • message_id: Unique identifier (= message_id visible to agent)
-          • shareholder_id: Foreign key to shareholders table (groups all turns for this VC)
-          • turn_number: Sequential turn number (0, 1, 2, ...)
-          • sender: Who sent it - 'vc', 'agent', or 'system'
-          • message_text: Text content (nullable)
-          • offer_json: JSON with offer details
-          • closed: 0=open, 1=terminal (thread is closed)
-          • close_reason: NULL while open; 'accepted', 'agent_rejected', or 'settled' when closed
-          • current_offer_share_pct: Current equity % being discussed
-          • current_offer_amount: Current investment $ amount
-          • expiry_day: Deadline to settle accepted deal
-          • day: Simulation day
-
         notifications - Agent inbox (simple string notifications)
           • notification_id: Unique identifier
           • day: Simulation day created
-          • type: Notification type (e.g. large_customer_message, vc_approach, research_complete, market_discovery, macro_economic_update)
+          • type: Notification type (e.g. large_customer_message, research_complete, market_discovery, macro_economic_update)
           • message: Notification message string
 
         issues - Individual customer support issues with full lifecycle
@@ -3479,14 +3123,7 @@ class AgentTools:
 
         VC QUERIES:
         -------------------
-        # Get all turns for a specific VC (by shareholder_id)
-        print(rows('''
-            SELECT turn_number, day, sender, message_text, offer_json,
-                   current_offer_share_pct, current_offer_amount
-            FROM vc_turns
-            WHERE shareholder_id = ?
-            ORDER BY turn_number ASC
-        ''', (shareholder_id,)))
+        
 
         Args:
             code: Python code to execute. Use print() to see output.
@@ -3533,14 +3170,6 @@ def _scrubbed_import(name, *args, **kwargs):
                     delattr(mod, attr)
                 except (AttributeError, TypeError):
                     pass
-        # Scrub macro_sensitivity from VC profiles
-        if hasattr(mod, 'PREDEFINED_VCS'):
-            for _vc in mod.PREDEFINED_VCS:
-                if hasattr(_vc, 'macro_sensitivity'):
-                    try:
-                        object.__setattr__(_vc, 'macro_sensitivity', None)
-                    except (AttributeError, TypeError):
-                        pass
     return mod
 
 import builtins
@@ -3561,11 +3190,9 @@ _HIDDEN_TABLES = {{
     'customer_persona_map', # Internal persona mapping
     'group_characteristics', # Internal group characteristics
     'enterprise_thread_counter',  # Internal thread ID counter
-    # (vc_thread_counter removed — VC turns grouped by shareholder_id)
     'world_context',      # Internal world context
     'pending_group_research', # Internal async research tracking
     'group_parameters',       # V2.1: Internal preference drift tracking (agent must infer from behavior)
-    'shareholders',           # V2.2: Hidden — agent uses vc_turns + list_potential_vcs instead
 }}
 
 # Hidden columns that agent should not see (latent customer attributes, internal simulation params)
@@ -3582,14 +3209,8 @@ _HIDDEN_COLUMNS = {{
     'reply_delay_mean', 'reply_delay_std', 'negotiation_rate', 'max_negotiation_turns',
     # Thread hidden columns - customer/VC reply timing is internal simulation state
     'next_reply_day',
-    # VC negotiation internal parameters (shareholders table)
-    'vc_alpha', 'turns_this_year', 'year_start_day',
-    # VC term sheet internals (vc_turns table) — agent sees terms via python_exec queries
-    'original_valuation', 'anti_dilution_triggered', 'tranche_2_released',
     # Internal tracking columns
     'current_offer_price',
-    # Funding round valuations - agent shouldn't see these
-    'pre_money_valuation', 'post_money_valuation',
     # Usage rate hidden - agent should only see actual (quota-capped) usage from daily_usage table
     'daily_usage_rate', 'billing_period_usage',
     # Customer state hidden columns (customer_state table) - internal satisfaction tracking
@@ -3607,7 +3228,7 @@ _HIDDEN_COLUMNS = {{
     'initial_offer_factor',
     # Customer persona internal attribute (customers table) - used for LLM prompt generation
     'persona_communication',
-    # Internal thread status tracking (enterprise_turns, vc_turns) - hidden dead-thread marker
+    # Internal thread status tracking (enterprise_turns) - hidden dead-thread marker
     '_internal_status',
 }}
 
@@ -3681,7 +3302,7 @@ def _filter_schema_result(result, query):
 # Valid tables the agent can query
 _VALID_TABLES = {{
     'customers', 'subscriptions', 'ledger', 'service_day', 'config_history',
-    'social_media_posts', 'enterprise_turns', 'vc_turns', 'notifications'
+    'social_media_posts', 'enterprise_turns', 'notifications'
 }}
 
 # Table columns for helpful error messages (generated at sandbox creation time)
@@ -4213,377 +3834,7 @@ os.chdir('{self.workspace_path}')
         )
 
     # =========================================================================
-    # V2: VC Negotiation & Equity Tools
     # =========================================================================
-
-    def list_potential_vcs(self) -> ToolResult:
-        """List all predefined VC investors and their profiles.
-
-        Shows each VC's name, investment range, description, and whether they
-        currently have an active negotiation with the company.
-        """
-        # Get active VC negotiations to mark which VCs are already engaged
-        active_threads = get_active_vc_negotiations(self.conn)
-        active_vc_info = {}
-        for t in active_threads:
-            active_vc_info[t['vc_name']] = t['shareholder_id']
-
-        output = "=== Potential VC Investors ===\n\n"
-        vc_data = []
-
-        for vc in PREDEFINED_VCS:
-            status = "Available"
-            shareholder_id = None
-            if vc.name in active_vc_info:
-                shareholder_id = active_vc_info[vc.name]
-                status = f"Active (shareholder_id={shareholder_id})"
-
-            output += f"  {vc.name} ({vc.vc_id})\n"
-            output += f"    Equity range: {vc.equity_pct_min*100:.0f}% – {vc.equity_pct_max*100:.0f}%\n"
-            output += f"    Description: {vc.description}\n"
-            output += f"    Status: {status}\n\n"
-
-            vc_data.append({
-                'vc_id': vc.vc_id,
-                'name': vc.name,
-                'equity_pct_min': vc.equity_pct_min,
-                'equity_pct_max': vc.equity_pct_max,
-                'description': vc.description,
-                'status': status,
-                'shareholder_id': shareholder_id,
-            })
-
-        output += f"Total: {len(PREDEFINED_VCS)} VCs ({len(active_vc_info)} currently active)\n"
-        output += "\nNote: VCs may reach out to you on any day. You can also attract "
-        output += "VC interest by growing your company's metrics and reputation."
-
-        return ToolResult(True, output, {'vcs': vc_data})
-
-    def send_vc_deal(self, deals: Optional[List[Dict]] = None,
-                     **kwargs) -> ToolResult:
-        """Send structured equity offers to VC investors.
-
-        Each deal is identified by shareholder_id. The system finds the VC's
-        open negotiation thread automatically.
-
-        Args:
-            deals: List of deal dicts, each with:
-                - shareholder_id (int): The VC's shareholder ID
-                - share_pct (float): Share percentage offered (e.g. 0.10 for 10%)
-                - anti_dilution_floor, milestone_tranche_pct, etc. (optional)
-        """
-        # Handle single-deal kwargs format
-        if deals is None:
-            deals = [kwargs] if kwargs else []
-        if not deals:
-            return ToolResult(False, "deals parameter required")
-        if not isinstance(deals, list):
-            deals = [deals]
-
-        results = []
-        summaries = []
-
-        for deal in deals:
-            result = self._process_single_vc_deal(deal)
-            results.append(result[0])
-            summaries.append(result[1])
-
-        sent = sum(1 for r in results if r.get('success'))
-        failed = len(results) - sent
-        if len(deals) == 1:
-            ok = bool(results[0].get('success'))
-            return ToolResult(ok, summaries[0], {'results': results})
-
-        summary = f"Sent {sent}/{len(deals)} VC deals"
-        if failed:
-            summary += f" ({failed} failed)"
-        return ToolResult(sent > 0, summary + ":\n" + "\n".join(summaries), {'results': results})
-
-    def _process_single_vc_deal(self, deal: Dict):
-        """Process a single VC deal. Returns (result_dict, summary_str)."""
-        shareholder_id = deal.get('shareholder_id')
-        share_pct = deal.get('share_pct')
-        anti_dilution_floor = deal.get('anti_dilution_floor')
-        milestone_tranche_pct = deal.get('milestone_tranche_pct')
-        milestone_revenue_multiplier = deal.get('milestone_revenue_multiplier')
-        milestone_deadline_days = deal.get('milestone_deadline_days')
-        redemption_days = deal.get('redemption_days')
-        redemption_buyback_multiplier = deal.get('redemption_buyback_multiplier')
-
-        if shareholder_id is None:
-            return {'error': 'missing shareholder_id'}, "Error: shareholder_id required"
-        shareholder_id = int(shareholder_id)
-
-        # Look up shareholder name for error messages
-        shareholder = get_shareholder(self.conn, shareholder_id)
-        vc_label = shareholder['name'] if shareholder else f"Shareholder #{shareholder_id}"
-
-        if share_pct is None or share_pct <= 0 or share_pct >= 1.0:
-            return ({'shareholder_id': shareholder_id, 'error': 'invalid share_pct'},
-                    f"{vc_label}: share_pct must be between 0 and 1 (exclusive)")
-
-        # Check if this VC has an active negotiation
-        latest = get_vc_latest_turn(self.conn, shareholder_id)
-        if not latest or latest['closed'] or latest.get('_internal_status'):
-            return ({'shareholder_id': shareholder_id, 'error': 'no open negotiation'},
-                    f"{vc_label}: no open negotiation")
-
-        thread = latest  # latest turn = current state
-
-        state = get_vc_negotiation_state(self.conn, shareholder_id)
-        if not state:
-            return ({'shareholder_id': shareholder_id, 'error': 'no state'},
-                    f"{vc_label}: could not load negotiation state")
-
-        # Validate term sheet proposals
-        error_msg = self._validate_vc_term_proposals(
-            thread, anti_dilution_floor, milestone_tranche_pct,
-            milestone_revenue_multiplier, milestone_deadline_days,
-            redemption_days, redemption_buyback_multiplier)
-        if error_msg:
-            return ({'shareholder_id': shareholder_id, 'error': error_msg},
-                    f"{vc_label}: {error_msg}")
-
-        # Get VC's valuation
-        valuation = thread.get('original_valuation')
-        if not valuation or valuation <= 0:
-            valuation = 1_000_000
-
-        amount = compute_check_size_from_pct(share_pct, valuation)
-        amount = round(amount, -3)
-
-        total_shares = get_total_shares(self.conn)
-        if total_shares <= 0:
-            return ({'shareholder_id': shareholder_id, 'error': 'no shares'},
-                    f"{vc_label}: no shares outstanding")
-
-        new_shares = (share_pct / (1 - share_pct)) * total_shares
-        price_per_share = amount / new_shares if new_shares > 0 else 0
-
-        # Compute term sheet adjustment
-        term_delta = self._compute_vc_term_delta(
-            thread, anti_dilution_floor, milestone_tranche_pct,
-            milestone_revenue_multiplier, milestone_deadline_days,
-            redemption_days, redemption_buyback_multiplier)
-
-        # Record agent's structural offer
-        offer_data = {
-            'share_pct': share_pct,
-            'amount': amount,
-            'price_per_share': round(price_per_share, 6),
-            'new_shares': round(new_shares, 2),
-        }
-        proposed_terms = {
-            k: v for k, v in {
-                'anti_dilution_floor': anti_dilution_floor,
-                'milestone_tranche_pct': milestone_tranche_pct,
-                'milestone_revenue_multiplier': milestone_revenue_multiplier,
-                'milestone_deadline_days': milestone_deadline_days,
-                'redemption_days': redemption_days,
-                'redemption_buyback_multiplier': redemption_buyback_multiplier,
-            }.items() if v is not None
-        }
-        if proposed_terms:
-            offer_data['proposed_terms'] = proposed_terms
-
-        add_vc_turn(
-            self.conn, shareholder_id, self.current_day, 'agent',
-            message_text=None,
-            offer_json=json.dumps(offer_data),
-            current_offer_share_pct=share_pct,
-            current_offer_amount=amount,
-        )
-
-        # Evaluate VC response
-        decision, counter_pct, counter_amount = evaluate_agent_vc_offer(
-            state, share_pct, self.config, valuation=valuation,
-            term_sheet_adjustment=term_delta,
-        )
-
-        if decision == 'accept':
-            deal_pct = counter_pct
-            deal_amount = counter_amount
-            deal_new_shares = (deal_pct / (1 - deal_pct)) * total_shares
-            deal_pps = deal_amount / deal_new_shares if deal_new_shares > 0 else 0
-
-            term_overrides = self._build_vc_term_overrides(
-                deal_amount, anti_dilution_floor, milestone_tranche_pct,
-                milestone_revenue_multiplier, milestone_deadline_days,
-                redemption_days, redemption_buyback_multiplier)
-
-            add_vc_turn(
-                self.conn, shareholder_id, self.current_day, 'vc',
-                message_text=f"Accepted: {deal_pct:.1%} equity for ${deal_amount:,.0f}. "
-                f"Proceed with settle_investments().",
-                offer_json=json.dumps({'share_pct': deal_pct, 'amount': deal_amount,
-                           'price_per_share': round(deal_pps, 6), 'decision': 'accept'}),
-                closed=1, close_reason='accepted',
-                current_offer_share_pct=deal_pct,
-                current_offer_amount=deal_amount,
-                **term_overrides,
-            )
-            self.conn.commit()
-
-            add_notification(
-                self.conn, self.current_day, 'vc_deal_accepted',
-                f'VC deal accepted: {state.vc_name} ({deal_pct:.1%} for ${deal_amount:,.0f})',
-            )
-
-            return ({'shareholder_id': shareholder_id, 'success': True, 'decision': 'accept',
-                     'deal_pct': deal_pct, 'deal_amount': deal_amount},
-                    f"{vc_label}: ACCEPTED — "
-                    f"{deal_pct:.1%} for ${deal_amount:,.0f}")
-        else:
-            self.conn.commit()
-            schedule_vc_reply(self.conn, shareholder_id, self.current_day, self.rng)
-
-            return ({'shareholder_id': shareholder_id, 'success': True, 'decision': 'counter_pending'},
-                    f"{vc_label}: offer sent — "
-                    f"{share_pct:.1%} (${amount:,.0f}), awaiting response")
-
-    def _validate_vc_term_proposals(self, thread, anti_dilution_floor, milestone_tranche_pct,
-                                     milestone_revenue_multiplier, milestone_deadline_days,
-                                     redemption_days, redemption_buyback_multiplier):
-        """Validate term sheet proposals. Returns error message or None."""
-        if anti_dilution_floor is not None:
-            if not thread.get('has_anti_dilution'):
-                return "Cannot propose anti_dilution_floor — no anti-dilution term"
-            if anti_dilution_floor not in self.config.vc_anti_dilution_floor_options:
-                return f"anti_dilution_floor must be one of {list(self.config.vc_anti_dilution_floor_options)}"
-        if milestone_tranche_pct is not None:
-            if not thread.get('has_milestone_tranching'):
-                return "Cannot propose milestone_tranche_pct — no milestone tranching term"
-            if milestone_tranche_pct not in self.config.vc_milestone_tranche_pct_options:
-                return f"milestone_tranche_pct must be one of {list(self.config.vc_milestone_tranche_pct_options)}"
-        if milestone_revenue_multiplier is not None:
-            if not thread.get('has_milestone_tranching'):
-                return "Cannot propose milestone_revenue_multiplier — no milestone tranching term"
-            if milestone_revenue_multiplier not in self.config.vc_milestone_revenue_multiplier_options:
-                return f"milestone_revenue_multiplier must be one of {list(self.config.vc_milestone_revenue_multiplier_options)}"
-        if milestone_deadline_days is not None:
-            if not thread.get('has_milestone_tranching'):
-                return "Cannot propose milestone_deadline_days — no milestone tranching term"
-            if milestone_deadline_days not in self.config.vc_milestone_deadline_days_options:
-                return f"milestone_deadline_days must be one of {list(self.config.vc_milestone_deadline_days_options)}"
-        if redemption_days is not None:
-            if not thread.get('has_redemption_rights'):
-                return "Cannot propose redemption_days — no redemption rights term"
-            if redemption_days not in self.config.vc_redemption_days_options:
-                return f"redemption_days must be one of {list(self.config.vc_redemption_days_options)}"
-        if redemption_buyback_multiplier is not None:
-            if not thread.get('has_redemption_rights'):
-                return "Cannot propose redemption_buyback_multiplier — no redemption rights term"
-            if redemption_buyback_multiplier not in self.config.vc_redemption_buyback_multiplier_options:
-                return f"redemption_buyback_multiplier must be one of {list(self.config.vc_redemption_buyback_multiplier_options)}"
-        return None
-
-    def _compute_vc_term_delta(self, thread, anti_dilution_floor, milestone_tranche_pct,
-                                milestone_revenue_multiplier, milestone_deadline_days,
-                                redemption_days, redemption_buyback_multiplier):
-        """Compute term sheet friendliness delta (agent - VC original)."""
-        agent_ad_floor = anti_dilution_floor if anti_dilution_floor is not None else thread.get('anti_dilution_floor')
-        agent_tranche = milestone_tranche_pct if milestone_tranche_pct is not None else thread.get('milestone_tranche_pct')
-        agent_rev_mult = milestone_revenue_multiplier if milestone_revenue_multiplier is not None else thread.get('milestone_revenue_multiplier')
-        agent_deadline = milestone_deadline_days if milestone_deadline_days is not None else thread.get('milestone_deadline_days_chosen')
-        agent_red_days = redemption_days if redemption_days is not None else thread.get('redemption_days_chosen')
-        agent_buyback = redemption_buyback_multiplier if redemption_buyback_multiplier is not None else thread.get('redemption_buyback_multiplier')
-
-        agent_friendliness = compute_term_sheet_friendliness(
-            self.config, anti_dilution_floor=agent_ad_floor, tranche_pct=agent_tranche,
-            revenue_multiplier=agent_rev_mult, deadline_days=agent_deadline,
-            redemption_days=agent_red_days, buyback_multiplier=agent_buyback,
-        )
-        vc_original = compute_term_sheet_friendliness(
-            self.config, anti_dilution_floor=thread.get('anti_dilution_floor'),
-            tranche_pct=thread.get('milestone_tranche_pct'),
-            revenue_multiplier=thread.get('milestone_revenue_multiplier'),
-            deadline_days=thread.get('milestone_deadline_days_chosen'),
-            redemption_days=thread.get('redemption_days_chosen'),
-            buyback_multiplier=thread.get('redemption_buyback_multiplier'),
-        )
-        return agent_friendliness - vc_original
-
-    def _build_vc_term_overrides(self, deal_amount, anti_dilution_floor, milestone_tranche_pct,
-                                  milestone_revenue_multiplier, milestone_deadline_days,
-                                  redemption_days, redemption_buyback_multiplier):
-        """Build term sheet override kwargs for VC acceptance turn."""
-        overrides = {}
-        if anti_dilution_floor is not None:
-            overrides['anti_dilution_floor'] = anti_dilution_floor
-        if milestone_tranche_pct is not None:
-            overrides['milestone_tranche_pct'] = milestone_tranche_pct
-            overrides['tranche_1_amount'] = deal_amount * milestone_tranche_pct
-            overrides['tranche_2_amount'] = deal_amount - overrides['tranche_1_amount']
-        if milestone_revenue_multiplier is not None:
-            overrides['milestone_revenue_multiplier'] = milestone_revenue_multiplier
-            from .database import get_mrr
-            overrides['milestone_revenue_target'] = get_mrr(self.conn) * milestone_revenue_multiplier
-        if milestone_deadline_days is not None:
-            overrides['milestone_deadline_days_chosen'] = milestone_deadline_days
-            overrides['milestone_deadline_day'] = self.current_day + milestone_deadline_days
-        if redemption_days is not None:
-            overrides['redemption_days_chosen'] = redemption_days
-            overrides['redemption_eligible_day'] = self.current_day + redemption_days
-        if redemption_buyback_multiplier is not None:
-            overrides['redemption_buyback_multiplier'] = redemption_buyback_multiplier
-        return overrides
-
-    def reject_vc_deal(self, deals: Optional[List[Dict]] = None,
-                       **kwargs) -> ToolResult:
-        """Reject one or more VC deals permanently.
-
-        Each deal is identified by shareholder_id. The system finds the VC's
-        open negotiation thread automatically.
-
-        Args:
-            deals: List of deal dicts, each with shareholder_id (int)
-        """
-        if deals is None:
-            deals = [kwargs] if kwargs else []
-        if not deals:
-            return ToolResult(False, "deals parameter required")
-        if not isinstance(deals, list):
-            deals = [deals]
-
-        results = []
-        summaries = []
-
-        for deal in deals:
-            shareholder_id = deal.get('shareholder_id')
-            if shareholder_id is None:
-                summaries.append("Error: shareholder_id required")
-                results.append({'error': 'missing shareholder_id'})
-                continue
-
-            shareholder_id = int(shareholder_id)
-            shareholder = get_shareholder(self.conn, shareholder_id)
-            vc_label = shareholder['name'] if shareholder else f"Shareholder #{shareholder_id}"
-
-            # Check if this VC has an active negotiation
-            latest = get_vc_latest_turn(self.conn, shareholder_id)
-            if not latest or latest['closed'] or latest.get('_internal_status'):
-                summaries.append(f"{vc_label}: no open negotiation")
-                results.append({'shareholder_id': shareholder_id, 'error': 'no open negotiation'})
-                continue
-
-            add_vc_turn(
-                self.conn, shareholder_id, self.current_day, 'agent',
-                message_text=None,
-                closed=1, close_reason='agent_rejected',
-            )
-            self.conn.commit()
-
-            summaries.append(f"{vc_label}: deal rejected")
-            results.append({'shareholder_id': shareholder_id, 'success': True})
-
-        rejected = sum(1 for r in results if r.get('success'))
-        if len(deals) == 1:
-            ok = bool(results and results[0].get('success'))
-            return ToolResult(ok, summaries[0], {'results': results})
-
-        return ToolResult(rejected > 0,
-            f"Rejected {rejected}/{len(deals)} VC deals:\n" + "\n".join(summaries),
-            {'results': results})
 
     def reject_enterprise_deal(self, deals: Optional[List[Dict]] = None,
                                 **kwargs) -> ToolResult:
@@ -4700,307 +3951,6 @@ os.chdir('{self.workspace_path}')
         return ToolResult(rejected > 0,
             f"Rejected {rejected}/{len(deals)} enterprise deals:\n" + "\n".join(summaries),
             {'results': results})
-
-    def get_cap_table_info(self) -> ToolResult:
-        """Get the current cap table showing all shareholders and ownership percentages.
-
-        Returns shareholder names, types, shares held, ownership %, and total invested.
-        """
-        cap_table = get_cap_table(self.conn)
-        if not cap_table:
-            return ToolResult(False, "No shareholders found — equity system not initialized")
-
-        total_shares = get_total_shares(self.conn)
-
-        output = "=== Cap Table ===\n"
-        output += f"Total Shares Outstanding: {total_shares:,.0f}\n\n"
-        output += f"{'Shareholder':<25} {'Type':<10} {'Shares':>15} {'Ownership':>10} {'Invested':>15}\n"
-        output += "-" * 75 + "\n"
-
-        for s in cap_table:
-            output += (
-                f"{s['name']:<25} {s['shareholder_type']:<10} "
-                f"{s['shares_held']:>15,.0f} {s['ownership_pct']:>9.1f}% "
-                f"${s['total_invested']:>14,.0f}\n"
-            )
-
-        # Show funding rounds
-        rounds = get_funding_rounds(self.conn)
-        if rounds:
-            output += f"\n--- Funding History ({len(rounds)} rounds) ---\n"
-            for r in rounds:
-                output += (
-                    f"Day {r['day']}: {r['investor_name']} invested ${r['total_amount']:,.0f} "
-                    f"for {r['shares_issued']:,.0f} shares @ ${r['price_per_share']:.4f}/share\n"
-                )
-
-        # Show dividends
-        dividends = get_dividend_history(self.conn)
-        if dividends:
-            total_div = sum(d['total_amount'] for d in dividends)
-            output += f"\n--- Dividend History ({len(dividends)} payments, ${total_div:,.0f} total) ---\n"
-            for d in dividends:
-                output += f"Day {d['day']}: ${d['total_amount']:,.0f} (${d['per_share_amount']:.6f}/share)\n"
-
-        return ToolResult(True, output, {
-            'shareholders': cap_table,
-            'total_shares': total_shares,
-            'funding_rounds': rounds,
-            'dividends': dividends,
-        })
-
-    def settle_investments(self) -> ToolResult:
-        """Settle all accepted VC deals and auto-reject all other open VC threads.
-
-        Takes no parameters. Automatically:
-        1. Finds all accepted VC deals (close_reason='accepted')
-        2. Auto-rejects all open (non-accepted) VC threads
-        3. Validates: same price/share across accepted deals, total dilution < 100%
-        4. Issues shares and receives investment cash for each accepted deal
-        """
-        # Find all accepted deals (latest turn per VC is closed=1, close_reason='accepted', not expired)
-        accepted_rows = self.conn.execute("""
-            SELECT vt.*, s.name as vc_name, s.shareholder_id as sh_id
-            FROM vc_turns vt
-            JOIN shareholders s ON vt.shareholder_id = s.shareholder_id
-            WHERE vt.message_id = (SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id = vt.shareholder_id)
-              AND vt.closed = 1 AND vt.close_reason = 'accepted'
-              AND (vt.expiry_day IS NULL OR vt.expiry_day > ?)
-        """, (self.current_day,)).fetchall()
-        accepted_deals = [dict(r) for r in accepted_rows]
-
-        if not accepted_deals:
-            return ToolResult(False, "No accepted VC deals to settle.")
-
-        # Auto-reject all open (non-accepted) VC negotiations
-        open_negs = get_active_vc_negotiations(self.conn)
-        rejected_names = []
-        for ot in open_negs:
-            add_vc_turn(
-                self.conn, ot['shareholder_id'], self.current_day, 'system',
-                message_text="Auto-rejected: settlement round executed.",
-                closed=1, close_reason='agent_rejected',
-            )
-            rejected_names.append(ot.get('vc_name', f"VC#{ot['shareholder_id']}"))
-
-        total_shares = get_total_shares(self.conn)
-        if total_shares <= 0:
-            return ToolResult(False, "No shares outstanding — equity system not initialized")
-
-        # Compute shares to issue for each accepted deal
-        settlements = []
-        total_new_shares = 0
-        total_investment = 0
-
-        for deal in accepted_deals:
-            share_pct = deal['current_offer_share_pct']
-            amount = deal['current_offer_amount']
-
-            # new_shares = (share_pct / (1 - share_pct)) * existing_total
-            # This gives the VC exactly share_pct of the POST-money total
-            new_shares = (share_pct / (1 - share_pct)) * total_shares
-            price_per_share = amount / new_shares if new_shares > 0 else 0
-
-            shareholder = get_shareholder(self.conn, deal['shareholder_id'])
-            settlements.append({
-                'shareholder_id': deal['shareholder_id'],
-                'vc_name': deal['vc_name'],
-                'share_pct': share_pct,
-                'amount': amount,
-                'new_shares': new_shares,
-                'price_per_share': price_per_share,
-            })
-            total_new_shares += new_shares
-            total_investment += amount
-
-        # Validate total dilution < 100%
-        total_pct = sum(s['share_pct'] for s in settlements)
-        if total_pct >= 1.0:
-            return ToolResult(False,
-                f"Total accepted equity = {total_pct:.1%} (>= 100%). "
-                f"Cannot settle. Reject some deals first.")
-
-        if total_new_shares / (total_shares + total_new_shares) >= 1.0:
-            return ToolResult(False, "Settlement would result in >= 100% dilution.")
-
-        # Validate same price_per_share across all deals (within 1% tolerance)
-        if len(settlements) > 1:
-            prices = [s['price_per_share'] for s in settlements]
-            avg_price = sum(prices) / len(prices)
-            for s in settlements:
-                if avg_price > 0 and abs(s['price_per_share'] - avg_price) / avg_price > 0.01:
-                    return ToolResult(False,
-                        f"All accepted deals must use the same price/share. "
-                        f"Got range ${min(prices):.4f} - ${max(prices):.4f}. "
-                        f"Reject mismatched deals before settling.")
-
-        # Execute settlement
-        output_lines = ["=== Settlement Executed ===\n"]
-
-        if rejected_names:
-            output_lines.append(f"Auto-rejected {len(rejected_names)} open negotiation(s): {', '.join(rejected_names)}\n")
-
-        for s in settlements:
-            # Issue shares
-            current_shares = get_shareholder(self.conn, s['shareholder_id'])['shares_held']
-            update_shareholder_shares(
-                self.conn, s['shareholder_id'],
-                current_shares + s['new_shares'],
-                s['amount']
-            )
-
-            # Record funding round
-            pre_money = s['price_per_share'] * total_shares
-            post_money = pre_money + s['amount']
-            record_funding_round(
-                self.conn, self.current_day, s['shareholder_id'],
-                s['new_shares'], s['price_per_share'], s['amount'],
-                pre_money, post_money
-            )
-
-            # Add cash
-            add_ledger_entry(
-                self.conn, self.current_day, 'vc_investment',
-                s['amount'], f"Investment from {s['vc_name']}"
-            )
-
-            # Mark as settled
-            add_vc_turn(
-                self.conn, s['shareholder_id'], self.current_day, 'system',
-                message_text=f"Deal settled: {s['new_shares']:,.0f} shares issued at ${s['price_per_share']:.4f}/share",
-                closed=1, close_reason='settled',
-            )
-
-            # Reset VC's turn counter so they can approach again
-            self.conn.execute("""
-                UPDATE shareholders SET turns_this_year = 0, year_start_day = NULL
-                WHERE shareholder_id = ?
-            """, (s['shareholder_id'],))
-
-            # Add notification
-            add_notification(
-                self.conn, self.current_day, 'vc_deal_settled',
-                f"VC deal settled: {s['vc_name']} (${s['amount']:,.0f} for {s['share_pct']:.1%})",
-            )
-
-            output_lines.append(
-                f"  {s['vc_name']}: ${s['amount']:,.0f} → {s['new_shares']:,.0f} shares "
-                f"({s['share_pct']:.1%} equity) @ ${s['price_per_share']:.4f}/share"
-            )
-
-        # Summary
-        new_total = total_shares + total_new_shares
-        output_lines.append(f"\nTotal investment: ${total_investment:,.0f}")
-        output_lines.append(f"New total shares: {new_total:,.0f}")
-        output_lines.append(f"Founder ownership: {(get_shareholder(self.conn, 1)['shares_held'] / new_total * 100):.1f}%")
-
-        self.conn.commit()
-
-        new_total = total_shares + total_new_shares
-        founder_sh = get_shareholder(self.conn, 1)
-        founder_pct = (founder_sh['shares_held'] / new_total * 100) if founder_sh else 0.0
-
-        return ToolResult(True, '\n'.join(output_lines), {
-            'settlements': settlements,
-            'total_investment': total_investment,
-            'total_new_shares': total_new_shares,
-            'new_total_shares': new_total,
-            'founder_ownership_pct': round(founder_pct, 2),
-            'auto_rejected': rejected_names,
-        })
-
-    def declare_dividend(self, amount: float) -> ToolResult:
-        """Declare a dividend payment distributed pro-rata by shares.
-
-        Dividends can only be paid from retained earnings (cumulative profit).
-        Cannot distribute invested capital (initial funding or VC investments).
-        Each shareholder receives: (their_shares / total_shares) × amount
-
-        Args:
-            amount: Total dividend amount to distribute
-        """
-        if amount <= 0:
-            return ToolResult(False, "Dividend amount must be positive")
-
-        # Check retained earnings (cumulative profit minus prior dividends)
-        retained = get_retained_earnings(self.conn)
-        if retained <= 0:
-            return ToolResult(False, f"No retained earnings available for dividends. "
-                              f"Retained earnings: ${retained:,.0f}")
-        if amount > retained:
-            return ToolResult(False, f"Amount exceeds retained earnings. "
-                              f"Available: ${retained:,.0f}, Requested: ${amount:,.0f}")
-
-        # Also check cash (can't distribute more than you physically have)
-        from .database import get_cash
-        cash = get_cash(self.conn)
-        if amount > cash:
-            return ToolResult(False, f"Insufficient cash. Available: ${cash:,.0f}, Requested: ${amount:,.0f}")
-
-        total_shares = get_total_shares(self.conn)
-        if total_shares <= 0:
-            return ToolResult(False, "No shares outstanding")
-
-        per_share = amount / total_shares
-
-        # Compute founder's payout
-        founder = self.conn.execute(
-            "SELECT shares_held FROM shareholders WHERE shareholder_type='founder'"
-        ).fetchone()
-        founder_payout = (founder['shares_held'] * per_share) if founder else 0.0
-
-        # Record dividend
-        record_dividend(self.conn, self.current_day, amount, per_share, total_shares, founder_payout)
-
-        # Debit cash
-        add_ledger_entry(
-            self.conn, self.current_day, 'dividend',
-            -amount, f"Dividend: ${per_share:.6f}/share × {total_shares:,.0f} shares"
-        )
-
-        # Notification
-        add_notification(
-            self.conn, self.current_day, 'dividend_declared',
-            f"Dividend declared: ${amount:,.0f} (${per_share:.6f}/share)",
-        )
-
-        # Build payout details
-        shareholders = get_all_shareholders(self.conn)
-        output = f"=== Dividend Declared ===\n"
-        output += f"Total: ${amount:,.0f} | Per share: ${per_share:.6f}\n\n"
-
-        for s in shareholders:
-            payout = s['shares_held'] * per_share
-            output += f"  {s['name']}: ${payout:,.2f} ({s['shares_held']:,.0f} shares)\n"
-
-        total_dividends = get_total_dividends(self.conn)
-        founder_cum_divs = get_founder_cumulative_dividends(self.conn)
-        remaining_retained = get_retained_earnings(self.conn)
-        output += f"\nCumulative dividends paid: ${total_dividends:,.0f} (Founder: ${founder_cum_divs:,.0f})"
-        output += f"\nRemaining retained earnings: ${remaining_retained:,.0f}"
-
-        self.conn.commit()
-
-        payouts = []
-        for s in shareholders:
-            payouts.append({
-                'name': s['name'],
-                'shares_held': s['shares_held'],
-                'payout': round(s['shares_held'] * per_share, 2),
-            })
-
-        return ToolResult(True, output, {
-            'amount': amount,
-            'per_share': per_share,
-            'total_shares': total_shares,
-            'payouts': payouts,
-            'founder_payout': round(founder_payout, 2),
-            'cumulative_dividends': total_dividends,
-            'founder_cumulative_dividends': founder_cum_divs,
-            'remaining_retained_earnings': remaining_retained,
-        })
-
-    # === V2: Information Discovery Tools ===
 
     def research_market(self) -> ToolResult:
         """Conduct market research to discover new customer segments.

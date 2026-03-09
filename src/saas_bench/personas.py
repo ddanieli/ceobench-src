@@ -92,7 +92,7 @@ within a year while maintaining service quality and customer satisfaction.
 
 ## The Path Forward
 
-Success means maximizing founder dividends while building a sustainable business.
+Success means maximizing cash while building a sustainable business.
 Failure means running out of cash or destroying the brand through poor service.
 
 The choice is yours. Good luck.
@@ -371,12 +371,11 @@ GROUP_CHARACTERISTICS = {
                             'Discovers vendors through executive referrals, LinkedIn networking, '
                             'and industry conferences. Referral programs highly effective.',
         'enterprise_negotiation_style': 'Relationship-focused, wants partnership terms, '
-                                       'interested in equity/co-development arrangements, long deal cycles.',
+                                       'long deal cycles, high-touch relationship.',
         'price_discussion_phrases': json.dumps([
             'Were thinking partnership, not just vendor',
             'Can we discuss revenue sharing?',
             'What does a strategic partnership look like?',
-            'Were open to equity conversations',
             'What partnership pricing can you offer?'
         ]),
         'quality_discussion_phrases': json.dumps([

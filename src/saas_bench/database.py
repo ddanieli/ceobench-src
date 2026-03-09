@@ -101,7 +101,7 @@ TABLE_DOCS = {
         'columns': {
             'id': 'INTEGER PRIMARY KEY — Unique entry ID',
             'day': 'INTEGER — Simulation day',
-            'category': "TEXT — Category: 'subscription_payment', 'compute', 'capacity', 'advertising', 'operations', 'development', 'lead_acquisition_cost', 'vc_investment', 'dividend', 'initial_funding', 'market_research', 'group_research', 'research_project'",
+            'category': "TEXT — Category: 'subscription_payment', 'compute', 'capacity', 'advertising', 'operations', 'development', 'lead_acquisition_cost', 'initial_funding', 'market_research', 'group_research', 'research_project'",
             'amount': 'REAL — Amount (positive=income, negative=expense)',
             'note': 'TEXT — Description of the transaction',
         }
@@ -186,74 +186,8 @@ TABLE_DOCS = {
         'columns': {
             'notification_id': 'INTEGER PRIMARY KEY — Unique notification ID',
             'day': 'INTEGER — Day of notification',
-            'type': 'TEXT — Notification type (e.g., large_customer_message, vc_approach, research_complete, ...)',
+            'type': 'TEXT — Notification type (e.g., large_customer_message, research_complete, ...)',
             'message': 'TEXT — Notification message string',
-        }
-    },
-    # NOTE: 'shareholders' table is intentionally hidden from the agent.
-    # The agent interacts with VCs via vc_turns and list_potential_vcs tool.
-    'funding_rounds': {
-        'description': 'Completed VC investment settlements',
-        'columns': {
-            'round_id': 'INTEGER PRIMARY KEY — Unique round ID',
-            'day': 'INTEGER — Settlement day',
-            'investor_shareholder_id': 'INTEGER — Foreign key to shareholders',
-            'shares_issued': 'REAL — New shares issued',
-            'price_per_share': 'REAL — Price per share',
-            'total_amount': 'REAL — Total investment amount',
-        },
-        'internal_columns': {
-            'pre_money_valuation': 'REAL — Pre-money valuation at settlement',
-            'post_money_valuation': 'REAL — Post-money valuation at settlement',
-        }
-    },
-    'vc_turns': {
-        'description': 'VC negotiation turns — each row is one message in a VC conversation. All turns for a VC are grouped by shareholder_id.',
-        'columns': {
-            'message_id': 'INTEGER PRIMARY KEY — Unique message identifier (use this to reference messages in send_vc_deal/reject_vc_deal)',
-            'shareholder_id': 'INTEGER — Foreign key to shareholders (groups all turns for this VC)',
-            'turn_number': 'INTEGER — 0-indexed turn within the VC conversation',
-            'sender': "TEXT — 'vc', 'agent', or 'system'",
-            'message_text': 'TEXT — Message text (empty string for agent structural-only turns)',
-            'offer_json': 'TEXT — JSON: {share_pct, amount, price_per_share, proposed_terms} (empty object {} if none)',
-            'day': 'INTEGER — Simulation day of this turn',
-            'expiry_day': 'INTEGER — Deal expiry day (auto-reject if not settled)',
-            'closed': "INTEGER — 0=open, 1=closed. Only set for accepted/agent_rejected/settled.",
-            'close_reason': "TEXT — empty string while open; 'accepted', 'agent_rejected', or 'settled' when closed",
-        },
-        'internal_columns': {
-            '_internal_status': "TEXT — Hidden: NULL=active, 'timeout' for dead threads",
-            'next_reply_day': 'INTEGER — Day when VC will reply (internal scheduling)',
-            'current_offer_share_pct': 'REAL — Latest offered share % (internal tracking)',
-            'current_offer_amount': 'REAL — Latest offered investment amount (internal)',
-            'original_valuation': 'REAL — Original valuation at deal creation',
-            'has_anti_dilution': 'INTEGER — 1 if deal has anti-dilution protection',
-            'has_milestone_tranching': 'INTEGER — 1 if deal has milestone-based tranching',
-            'has_redemption_rights': 'INTEGER — 1 if deal has redemption rights',
-            'milestone_revenue_target': 'REAL — MRR target for milestone tranche release',
-            'milestone_deadline_day': 'REAL — Day by which milestone must be hit',
-            'tranche_1_amount': 'REAL — First tranche amount (released on acceptance)',
-            'tranche_2_amount': 'REAL — Second tranche amount (released on milestone)',
-            'redemption_eligible_day': 'INTEGER — Day after which VC can demand buyback',
-            'anti_dilution_floor': 'REAL — Anti-dilution valuation floor',
-            'milestone_tranche_pct': 'REAL — Upfront tranche percentage',
-            'milestone_revenue_multiplier': 'REAL — MRR milestone multiplier',
-            'milestone_deadline_days_chosen': 'INTEGER — Deadline days for milestone',
-            'redemption_days_chosen': 'INTEGER — Redemption window days',
-            'redemption_buyback_multiplier': 'REAL — Buyback multiplier',
-            'anti_dilution_triggered': 'INTEGER — Whether anti-dilution has been triggered',
-            'tranche_2_released': 'INTEGER — Whether second tranche has been released',
-        }
-    },
-    'dividends': {
-        'description': 'Dividend payment history',
-        'columns': {
-            'dividend_id': 'INTEGER PRIMARY KEY — Unique dividend ID',
-            'day': 'INTEGER — Day declared',
-            'total_amount': 'REAL — Total dividend declared',
-            'per_share_amount': 'REAL — Amount per share',
-            'total_shares_at_time': 'REAL — Total shares when declared',
-            'founder_payout': "REAL — Founder's share of this dividend",
         }
     },
     'research_projects': {
@@ -494,8 +428,7 @@ def init_database(db_path: Path) -> sqlite3.Connection:
                 'subscription_payment', 'compute', 'capacity',
                 'advertising', 'operations', 'development',
                 'lead_acquisition_cost',
-                'vc_investment', 'vc_tranche_2', 'vc_redemption',
-                'dividend', 'initial_funding',
+                'initial_funding',
                 'market_research', 'group_research', 'research_project',
                 'ad_revenue'
             )),
@@ -728,10 +661,6 @@ def init_database(db_path: Path) -> sqlite3.Connection:
                 'large_customer_message', 'service_alert',
                 'financial_alert', 'event_alert', 'cancellation',
                 'lead_lost', 'deal_won', 'customer_churned', 'broken_promise',
-                'vc_approach', 'vc_counter_offer', 'vc_deal_accepted', 'vc_deal_rejected',
-                'vc_deal_expired', 'vc_deal_settled', 'dividend_declared',
-                'vc_anti_dilution', 'vc_milestone_hit', 'vc_milestone_missed',
-                'vc_redemption', 'vc_advisory',
                 'market_discovery', 'research_complete', 'group_research_complete',
                 'contract_renewal',
                 'macro_economic_update'
@@ -784,95 +713,6 @@ def init_database(db_path: Path) -> sqlite3.Connection:
             quality_discussion_phrases TEXT  -- JSON array of typical phrases
         );
 
-
-        -- =====================================================================
-        -- V2: Equity & VC Negotiation Tables
-        -- =====================================================================
-
-        -- Shareholders (founder + VC investors)
-        CREATE TABLE IF NOT EXISTS shareholders (
-            shareholder_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,                 -- "Founder", "Sequoia Capital", etc.
-            shareholder_type TEXT NOT NULL CHECK(shareholder_type IN ('founder', 'vc')),
-            shares_held REAL NOT NULL DEFAULT 0,  -- Float share count
-            total_invested REAL NOT NULL DEFAULT 0,  -- Total $ invested
-            created_day INTEGER NOT NULL,
-            -- VC-specific parameters (NULL for founder)
-            target_share_pct REAL,              -- Base equity % from valuation
-            investment_amount REAL,             -- Check size for this approach
-            equity_pct_min REAL,                -- VC's minimum equity % target
-            equity_pct_max REAL,                -- VC's maximum equity % target
-            reply_delay_mean REAL,              -- Mean days to reply
-            reply_delay_std REAL,               -- Std dev of reply delay
-            -- V2.1: Turn tracking for yearly cap
-            turns_this_year INTEGER NOT NULL DEFAULT 0,
-            year_start_day INTEGER  -- Day when turns_this_year was last reset
-        );
-
-        -- Funding rounds (completed settlements)
-        CREATE TABLE IF NOT EXISTS funding_rounds (
-            round_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            day INTEGER NOT NULL,
-            investor_shareholder_id INTEGER NOT NULL,
-            shares_issued REAL NOT NULL,
-            price_per_share REAL NOT NULL,
-            total_amount REAL NOT NULL,
-            pre_money_valuation REAL,
-            post_money_valuation REAL,
-            FOREIGN KEY (investor_shareholder_id) REFERENCES shareholders(shareholder_id)
-        );
-
-        -- VC negotiation turns (each row = one turn in a VC conversation)
-        -- All turns for a VC are grouped by shareholder_id; turn_number orders them
-        CREATE TABLE IF NOT EXISTS vc_turns (
-            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            shareholder_id INTEGER NOT NULL,
-            turn_number INTEGER NOT NULL DEFAULT 0,  -- 0-indexed turn within thread
-            sender TEXT NOT NULL CHECK(sender IN ('vc', 'agent', 'system')),
-            message_text TEXT NOT NULL DEFAULT '',    -- Text (empty for agent structural-only turns)
-            offer_json TEXT NOT NULL DEFAULT '{}',    -- JSON: {share_pct, amount, price_per_share, ...}
-            day INTEGER NOT NULL,
-            expiry_day INTEGER,                      -- Deal expiry day (auto-reject if not settled)
-            closed INTEGER NOT NULL DEFAULT 0,       -- 0=open, 1=terminal (only for accepted/agent_rejected/settled)
-            close_reason TEXT NOT NULL DEFAULT '',    -- Empty while open; 'accepted','settled','agent_rejected' when closed
-            _internal_status TEXT,                   -- Hidden: NULL=active, 'timeout' for dead threads
-            -- Hidden internal scheduling (not exposed to agent)
-            next_reply_day INTEGER,                  -- Day when VC will reply (NULL if none)
-            current_offer_share_pct REAL,            -- Latest offered share % (internal tracking)
-            current_offer_amount REAL,               -- Latest offered investment amount (internal)
-            -- Term sheet mechanics (set on thread creation, carried forward on each turn)
-            has_anti_dilution INTEGER NOT NULL DEFAULT 0,
-            has_milestone_tranching INTEGER NOT NULL DEFAULT 0,
-            has_redemption_rights INTEGER NOT NULL DEFAULT 0,
-            milestone_revenue_target REAL,
-            milestone_deadline_day INTEGER,
-            tranche_1_amount REAL,
-            tranche_2_amount REAL,
-            tranche_2_released INTEGER NOT NULL DEFAULT 0,
-            redemption_eligible_day INTEGER,
-            original_valuation REAL,
-            anti_dilution_triggered INTEGER NOT NULL DEFAULT 0,
-            -- Per-deal chosen option values
-            anti_dilution_floor REAL,
-            milestone_tranche_pct REAL,
-            milestone_revenue_multiplier REAL,
-            milestone_deadline_days_chosen INTEGER,
-            redemption_days_chosen INTEGER,
-            redemption_buyback_multiplier REAL,
-            FOREIGN KEY (shareholder_id) REFERENCES shareholders(shareholder_id)
-        );
-
-        -- (vc_thread_counter removed — VC turns are grouped by shareholder_id, no thread IDs)
-
-        -- Dividend payment history
-        CREATE TABLE IF NOT EXISTS dividends (
-            dividend_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            day INTEGER NOT NULL,
-            total_amount REAL NOT NULL,          -- Total dividend declared
-            per_share_amount REAL NOT NULL,      -- Amount per share
-            total_shares_at_time REAL NOT NULL,  -- Snapshot of total shares when declared
-            founder_payout REAL NOT NULL DEFAULT 0  -- Founder's share of this dividend
-        );
 
         -- R&D Research Tiers (20 independent, repeatable tiers)
         CREATE TABLE IF NOT EXISTS research_projects (
@@ -996,11 +836,6 @@ def init_database(db_path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_notifications_day ON notifications(day);
         CREATE INDEX IF NOT EXISTS idx_personas_group ON customer_personas(group_id);
         -- V2: VC indexes
-        CREATE INDEX IF NOT EXISTS idx_vc_turns_shareholder ON vc_turns(shareholder_id);
-        CREATE INDEX IF NOT EXISTS idx_vc_turns_shareholder ON vc_turns(shareholder_id);
-        CREATE INDEX IF NOT EXISTS idx_vc_turns_closed ON vc_turns(closed);
-        CREATE INDEX IF NOT EXISTS idx_funding_rounds_day ON funding_rounds(day);
-        CREATE INDEX IF NOT EXISTS idx_dividends_day ON dividends(day);
         -- V2: Research project indexes
         CREATE INDEX IF NOT EXISTS idx_research_projects_status ON research_projects(status);
         -- V2.1: Issues indexes
@@ -1050,20 +885,6 @@ def init_database(db_path: Path) -> sqlite3.Connection:
             ON enterprise_turns(thread_id, message_id DESC)
             WHERE closed = 0 AND _internal_status IS NULL;
     """)
-
-    # V2.2 migration: add term sheet option columns to vc_turns (for existing databases)
-    for col, col_type in [
-        ('anti_dilution_floor', 'REAL'),
-        ('milestone_tranche_pct', 'REAL'),
-        ('milestone_revenue_multiplier', 'REAL'),
-        ('milestone_deadline_days_chosen', 'INTEGER'),
-        ('redemption_days_chosen', 'INTEGER'),
-        ('redemption_buyback_multiplier', 'REAL'),
-    ]:
-        try:
-            conn.execute(f"ALTER TABLE vc_turns ADD COLUMN {col} {col_type}")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
     # V2.3 migration: ads system + promotion system columns
     for col, col_type in [
@@ -1536,22 +1357,13 @@ def get_daily_notification_summary(conn: sqlite3.Connection, day: int) -> str:
         'large_customer_message', 'lead_lost', 'deal_won',
         'customer_churned', 'contract_renewal',
     }
-    VC_TYPES = {
-        'vc_approach', 'vc_counter_offer', 'vc_deal_accepted', 'vc_deal_rejected',
-        'vc_deal_expired', 'vc_deal_settled', 'dividend_declared',
-        'vc_anti_dilution', 'vc_milestone_hit', 'vc_milestone_missed',
-        'vc_redemption', 'vc_advisory',
-    }
 
     customer_count = 0
-    vc_count = 0
     other_lines = []
 
     for n in notifications:
         if n['type'] in CUSTOMER_TYPES:
             customer_count += 1
-        elif n['type'] in VC_TYPES:
-            vc_count += 1
         else:
             # research_complete, group_research_complete, market_discovery, macro_economic_update
             other_lines.append(n['message'])
@@ -1559,8 +1371,6 @@ def get_daily_notification_summary(conn: sqlite3.Connection, day: int) -> str:
     lines = []
     if customer_count > 0:
         lines.append(f"New customer messages: {customer_count}")
-    if vc_count > 0:
-        lines.append(f"New VC messages: {vc_count}")
     lines.extend(other_lines)
 
     return '\n'.join(lines)
@@ -1785,73 +1595,7 @@ def get_all_group_characteristics(conn: sqlite3.Connection) -> dict:
 
 
 # =============================================================================
-# V2: Shareholder & Equity Functions
 # =============================================================================
-
-def create_shareholder(conn: sqlite3.Connection, name: str, shareholder_type: str,
-                       shares: float, created_day: int, total_invested: float = 0,
-                       target_share_pct: float = None, investment_amount: float = None,
-                       equity_pct_min: float = None, equity_pct_max: float = None,
-                       reply_delay_mean: float = None, reply_delay_std: float = None) -> int:
-    """Create a new shareholder and return shareholder_id."""
-    cursor = conn.execute("""
-        INSERT INTO shareholders
-        (name, shareholder_type, shares_held, total_invested, created_day,
-         target_share_pct, investment_amount, equity_pct_min, equity_pct_max,
-         reply_delay_mean, reply_delay_std)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (name, shareholder_type, shares, total_invested, created_day,
-          target_share_pct, investment_amount, equity_pct_min, equity_pct_max,
-          reply_delay_mean, reply_delay_std))
-    return cursor.lastrowid
-
-
-def get_shareholder(conn: sqlite3.Connection, shareholder_id: int) -> Optional[dict]:
-    """Get a shareholder by ID."""
-    result = conn.execute(
-        "SELECT * FROM shareholders WHERE shareholder_id = ?",
-        (shareholder_id,)
-    ).fetchone()
-    return dict(result) if result else None
-
-
-def get_all_shareholders(conn: sqlite3.Connection) -> list:
-    """Get all shareholders."""
-    result = conn.execute("SELECT * FROM shareholders ORDER BY shareholder_id").fetchall()
-    return [dict(row) for row in result]
-
-
-def get_total_shares(conn: sqlite3.Connection) -> float:
-    """Get total shares outstanding across all shareholders."""
-    result = conn.execute("SELECT COALESCE(SUM(shares_held), 0) FROM shareholders").fetchone()
-    return float(result[0])
-
-
-def update_shareholder_shares(conn: sqlite3.Connection, shareholder_id: int,
-                               new_shares: float, additional_invested: float = 0):
-    """Update shareholder's share count and total invested."""
-    conn.execute("""
-        UPDATE shareholders
-        SET shares_held = ?, total_invested = total_invested + ?
-        WHERE shareholder_id = ?
-    """, (new_shares, additional_invested, shareholder_id))
-
-
-def get_cap_table(conn: sqlite3.Connection) -> list:
-    """Get cap table: each shareholder with ownership percentage."""
-    total = get_total_shares(conn)
-    if total <= 0:
-        return []
-    shareholders = get_all_shareholders(conn)
-    for s in shareholders:
-        s['ownership_pct'] = (s['shares_held'] / total) * 100 if total > 0 else 0
-    return shareholders
-
-
-# =============================================================================
-# Enterprise Turn Functions
-# =============================================================================
-
 def _next_enterprise_thread_id(conn: sqlite3.Connection) -> int:
     """Allocate and return the next enterprise thread_id."""
     row = conn.execute("SELECT next_thread_id FROM enterprise_thread_counter WHERE id = 1").fetchone()
@@ -1997,192 +1741,12 @@ def update_enterprise_turn_next_reply(conn: sqlite3.Connection, thread_id: int,
 # =============================================================================
 # V2: VC Thread Functions
 # =============================================================================
-
-def create_vc_approach(conn: sqlite3.Connection, shareholder_id: int, created_day: int,
-                       expiry_day: int = None,
-                       has_anti_dilution: bool = False,
-                       has_milestone_tranching: bool = False,
-                       has_redemption_rights: bool = False,
-                       milestone_revenue_target: float = None,
-                       milestone_deadline_day: int = None,
-                       tranche_1_amount: float = None,
-                       tranche_2_amount: float = None,
-                       redemption_eligible_day: int = None,
-                       original_valuation: float = None,
-                       # V2.2: Per-deal chosen option values
-                       anti_dilution_floor: float = None,
-                       milestone_tranche_pct: float = None,
-                       milestone_revenue_multiplier: float = None,
-                       milestone_deadline_days_chosen: int = None,
-                       redemption_days_chosen: int = None,
-                       redemption_buyback_multiplier: float = None,
-                       initial_offer_text: str = None,
-                       initial_offer_json: str = None,
-                       initial_offer_share_pct: float = None,
-                       initial_offer_amount: float = None) -> int:
-    """Create a VC's initial approach by inserting turn 0.
-
-    Returns message_id.
-    """
-    # Get current max turn_number for this shareholder to continue sequence
-    prev = conn.execute("""
-        SELECT MAX(turn_number) as max_turn FROM vc_turns WHERE shareholder_id = ?
-    """, (shareholder_id,)).fetchone()
-    turn_number = 0 if (prev is None or prev['max_turn'] is None) else prev['max_turn'] + 1
-
-    cursor = conn.execute("""
-        INSERT INTO vc_turns
-        (shareholder_id, turn_number, sender, message_text, offer_json,
-         day, expiry_day, next_reply_day,
-         current_offer_share_pct, current_offer_amount,
-         has_anti_dilution, has_milestone_tranching, has_redemption_rights,
-         milestone_revenue_target, milestone_deadline_day,
-         tranche_1_amount, tranche_2_amount, redemption_eligible_day, original_valuation,
-         anti_dilution_floor, milestone_tranche_pct, milestone_revenue_multiplier,
-         milestone_deadline_days_chosen, redemption_days_chosen, redemption_buyback_multiplier)
-        VALUES (?, ?, 'vc', ?, ?, ?, ?, NULL,
-                ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (shareholder_id, turn_number,
-          initial_offer_text or '', initial_offer_json or '{}',
-          created_day, expiry_day,
-          initial_offer_share_pct, initial_offer_amount,
-          int(has_anti_dilution), int(has_milestone_tranching), int(has_redemption_rights),
-          milestone_revenue_target, milestone_deadline_day,
-          tranche_1_amount, tranche_2_amount, redemption_eligible_day, original_valuation,
-          anti_dilution_floor, milestone_tranche_pct, milestone_revenue_multiplier,
-          milestone_deadline_days_chosen, redemption_days_chosen, redemption_buyback_multiplier))
-    return cursor.lastrowid
-
-
-def get_vc_latest_turn(conn: sqlite3.Connection, shareholder_id: int) -> Optional[dict]:
-    """Get the latest turn for a VC (represents current negotiation state)."""
-    result = conn.execute("""
-        SELECT * FROM vc_turns
-        WHERE shareholder_id = ?
-        ORDER BY turn_number DESC
-        LIMIT 1
-    """, (shareholder_id,)).fetchone()
-    return dict(result) if result else None
-
-
-def get_active_vc_negotiations(conn: sqlite3.Connection) -> list:
-    """Get all active VC negotiations (latest turn has closed=0 and no _internal_status)."""
-    result = conn.execute("""
-        SELECT vt.*, s.name as vc_name, s.investment_amount, s.target_share_pct
-        FROM vc_turns vt
-        JOIN shareholders s ON vt.shareholder_id = s.shareholder_id
-        WHERE vt.message_id = (
-            SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id = vt.shareholder_id
-        )
-        AND vt.closed = 0
-        AND vt._internal_status IS NULL
-        ORDER BY vt.day
-    """).fetchall()
-    return [dict(row) for row in result]
-
-
-def close_vc_negotiation(conn: sqlite3.Connection, shareholder_id: int, reason: str):
-    """Close a VC negotiation by setting closed=1 and close_reason on the latest turn."""
-    conn.execute("""
-        UPDATE vc_turns SET closed = 1, close_reason = ?
-        WHERE shareholder_id = ? AND message_id = (
-            SELECT MAX(message_id) FROM vc_turns WHERE shareholder_id = ?
-        )
-    """, (reason, shareholder_id, shareholder_id))
-
-
-def mark_vc_negotiation_dead(conn: sqlite3.Connection, shareholder_id: int, status: str):
-    """Mark a VC negotiation as internally dead (timeout).
-
-    Sets _internal_status on the latest turn. No new row is added — the negotiation
-    simply becomes invisible to internal queries without the agent seeing any change.
-    """
-    conn.execute("""
-        UPDATE vc_turns SET _internal_status = ?
-        WHERE shareholder_id = ? AND message_id = (
-            SELECT MAX(message_id) FROM vc_turns WHERE shareholder_id = ?
-        )
-    """, (status, shareholder_id, shareholder_id))
-
-
-def add_vc_turn(conn: sqlite3.Connection, shareholder_id: int, day: int,
-                sender: str, message_text: str = '', offer_json: str = '{}',
-                closed: int = 0, close_reason: str = '',
-                _internal_status: str = None,
-                **kwargs) -> int:
-    """Add a new turn to a VC conversation. Carries forward term sheet columns from previous turn.
-
-    Returns the new message_id.
-    """
-    # Get the latest turn to carry forward data
-    prev = conn.execute("""
-        SELECT * FROM vc_turns WHERE shareholder_id = ? ORDER BY turn_number DESC LIMIT 1
-    """, (shareholder_id,)).fetchone()
-    if not prev:
-        raise ValueError(f"No existing turns for vc shareholder {shareholder_id}")
-
-    turn_number = prev['turn_number'] + 1
-
-    # Carry forward from previous turn, allow overrides via kwargs
-    carry_cols = [
-        'expiry_day', 'next_reply_day',
-        'current_offer_share_pct', 'current_offer_amount',
-        'has_anti_dilution', 'has_milestone_tranching', 'has_redemption_rights',
-        'milestone_revenue_target', 'milestone_deadline_day',
-        'tranche_1_amount', 'tranche_2_amount', 'tranche_2_released',
-        'redemption_eligible_day', 'original_valuation', 'anti_dilution_triggered',
-        'anti_dilution_floor', 'milestone_tranche_pct', 'milestone_revenue_multiplier',
-        'milestone_deadline_days_chosen', 'redemption_days_chosen', 'redemption_buyback_multiplier',
-    ]
-    values = {}
-    for col in carry_cols:
-        values[col] = kwargs.get(col, prev[col])
-
-    cols = ['shareholder_id', 'turn_number', 'sender', 'message_text', 'offer_json',
-            'closed', 'close_reason', '_internal_status', 'day'] + carry_cols
-    placeholders = ', '.join(['?'] * len(cols))
-    col_str = ', '.join(cols)
-    params = [shareholder_id, turn_number, sender, message_text or '', offer_json or '{}',
-              closed, close_reason or '', _internal_status, day] + [values[c] for c in carry_cols]
-
-    cursor = conn.execute(f"""
-        INSERT INTO vc_turns ({col_str}) VALUES ({placeholders})
-    """, params)
-    return cursor.lastrowid
-
-
-def get_vc_turns(conn: sqlite3.Connection, shareholder_id: int,
-                  limit: int = 20) -> list:
-    """Get turns for a VC conversation."""
-    result = conn.execute("""
-        SELECT * FROM vc_turns
-        WHERE shareholder_id = ?
-        ORDER BY turn_number
-        LIMIT ?
-    """, (shareholder_id, limit)).fetchall()
-    return [dict(row) for row in result]
-
-
-# =============================================================================
-# V2: Turn Lookup & Count Helpers (for message_id-based API)
-# =============================================================================
-
 def get_enterprise_turn_by_id(conn: sqlite3.Connection, message_id: int) -> Optional[dict]:
     """Look up an enterprise turn by message_id (= message_id visible to agent)."""
     result = conn.execute("""
         SELECT * FROM enterprise_turns WHERE message_id = ?
     """, (message_id,)).fetchone()
     return dict(result) if result else None
-
-
-def get_vc_turn_by_id(conn: sqlite3.Connection, message_id: int) -> Optional[dict]:
-    """Look up a VC turn by message_id (= message_id visible to agent)."""
-    result = conn.execute("""
-        SELECT * FROM vc_turns WHERE message_id = ?
-    """, (message_id,)).fetchone()
-    return dict(result) if result else None
-
 
 def count_agent_enterprise_turns(conn: sqlite3.Connection, customer_id: int) -> int:
     """Count ALL agent turns for a customer across all enterprise threads."""
@@ -2191,211 +1755,6 @@ def count_agent_enterprise_turns(conn: sqlite3.Connection, customer_id: int) -> 
         WHERE customer_id = ? AND sender = 'agent'
     """, (customer_id,)).fetchone()
     return result[0]
-
-
-def count_agent_vc_turns_this_year(conn: sqlite3.Connection, shareholder_id: int,
-                                    current_day: int, year_length: int = 365) -> int:
-    """Count agent turns for a VC shareholder within the last year_length days."""
-    result = conn.execute("""
-        SELECT COUNT(*) FROM vc_turns
-        WHERE shareholder_id = ? AND sender = 'agent'
-        AND day >= ?
-    """, (shareholder_id, current_day - year_length)).fetchone()
-    return result[0]
-
-
-# =============================================================================
-# V2: Funding Round Functions
-# =============================================================================
-
-def record_funding_round(conn: sqlite3.Connection, day: int,
-                         investor_shareholder_id: int, shares_issued: float,
-                         price_per_share: float, total_amount: float,
-                         pre_money_val: float = None,
-                         post_money_val: float = None) -> int:
-    """Record a completed funding round."""
-    cursor = conn.execute("""
-        INSERT INTO funding_rounds
-        (day, investor_shareholder_id, shares_issued, price_per_share,
-         total_amount, pre_money_valuation, post_money_valuation)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (day, investor_shareholder_id, shares_issued, price_per_share,
-          total_amount, pre_money_val, post_money_val))
-    return cursor.lastrowid
-
-
-def get_funding_rounds(conn: sqlite3.Connection) -> list:
-    """Get all funding rounds."""
-    result = conn.execute("""
-        SELECT fr.*, s.name as investor_name
-        FROM funding_rounds fr
-        JOIN shareholders s ON fr.investor_shareholder_id = s.shareholder_id
-        ORDER BY fr.day
-    """).fetchall()
-    return [dict(row) for row in result]
-
-
-# =============================================================================
-# V2.1: VC Term Sheet Helpers
-# =============================================================================
-
-def get_settled_vcs_with_terms(conn: sqlite3.Connection) -> list:
-    """Get all settled VC deals that have active term sheet mechanics.
-
-    Returns the latest turn for each settled VC with term sheet mechanics.
-    """
-    result = conn.execute("""
-        SELECT vt.*, s.name as vc_name, s.shareholder_id, s.shares_held, s.total_invested
-        FROM vc_turns vt
-        JOIN shareholders s ON vt.shareholder_id = s.shareholder_id
-        WHERE vt.message_id = (
-            SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id = vt.shareholder_id
-        )
-        AND vt.close_reason = 'settled'
-        AND (vt.has_anti_dilution = 1 OR vt.has_milestone_tranching = 1
-             OR vt.has_redemption_rights = 1)
-    """).fetchall()
-    return [dict(row) for row in result]
-
-
-def release_tranche_2(conn: sqlite3.Connection, shareholder_id: int):
-    """Mark tranche 2 as released for a milestone-tranched deal (all turns for this VC)."""
-    conn.execute("""
-        UPDATE vc_turns SET tranche_2_released = 1 WHERE shareholder_id = ?
-    """, (shareholder_id,))
-
-
-def mark_anti_dilution_triggered(conn: sqlite3.Connection, shareholder_id: int):
-    """Mark anti-dilution as triggered for a deal (all turns for this VC)."""
-    conn.execute("""
-        UPDATE vc_turns SET anti_dilution_triggered = 1 WHERE shareholder_id = ?
-    """, (shareholder_id,))
-
-
-def get_vc_return_pct(conn: sqlite3.Connection, shareholder_id: int,
-                      current_price_per_share: float) -> float:
-    """Compute share-weighted return % for a VC with existing investments.
-
-    Returns:
-        Return percentage (positive = gain, negative = loss). 0.0 if no investments.
-    """
-    rounds = conn.execute("""
-        SELECT shares_issued, price_per_share FROM funding_rounds
-        WHERE investor_shareholder_id = ?
-    """, (shareholder_id,)).fetchall()
-    if not rounds:
-        return 0.0
-    total_shares = sum(r['shares_issued'] for r in rounds)
-    if total_shares <= 0:
-        return 0.0
-    weighted_return = sum(
-        r['shares_issued'] * (current_price_per_share - r['price_per_share']) / r['price_per_share']
-        for r in rounds if r['price_per_share'] > 0
-    )
-    return weighted_return / total_shares
-
-
-def increment_vc_turns(conn: sqlite3.Connection, shareholder_id: int,
-                       current_day: int, year_length: int = 365):
-    """Increment turns_this_year for a VC, resetting if a new year has started."""
-    row = conn.execute("""
-        SELECT turns_this_year, year_start_day FROM shareholders
-        WHERE shareholder_id = ?
-    """, (shareholder_id,)).fetchone()
-    if not row:
-        return
-    turns = row['turns_this_year'] or 0
-    year_start = row['year_start_day']
-    if year_start is None or (current_day - year_start) >= year_length:
-        # New year — reset counter
-        conn.execute("""
-            UPDATE shareholders SET turns_this_year = 1, year_start_day = ?
-            WHERE shareholder_id = ?
-        """, (current_day, shareholder_id))
-    else:
-        conn.execute("""
-            UPDATE shareholders SET turns_this_year = ?
-            WHERE shareholder_id = ?
-        """, (turns + 1, shareholder_id))
-
-
-def get_vc_turns_this_year(conn: sqlite3.Connection, shareholder_id: int,
-                           current_day: int, year_length: int = 365) -> int:
-    """Get how many negotiation turns a VC has used this year."""
-    row = conn.execute("""
-        SELECT turns_this_year, year_start_day FROM shareholders
-        WHERE shareholder_id = ?
-    """, (shareholder_id,)).fetchone()
-    if not row:
-        return 0
-    year_start = row['year_start_day']
-    if year_start is None or (current_day - year_start) >= year_length:
-        return 0  # New year, counter would be reset
-    return row['turns_this_year'] or 0
-
-
-# =============================================================================
-# V2: Dividend Functions
-# =============================================================================
-
-def record_dividend(conn: sqlite3.Connection, day: int, total_amount: float,
-                    per_share_amount: float, total_shares: float,
-                    founder_payout: float = 0.0) -> int:
-    """Record a dividend payment."""
-    cursor = conn.execute("""
-        INSERT INTO dividends (day, total_amount, per_share_amount, total_shares_at_time, founder_payout)
-        VALUES (?, ?, ?, ?, ?)
-    """, (day, total_amount, per_share_amount, total_shares, founder_payout))
-    return cursor.lastrowid
-
-
-def get_total_dividends(conn: sqlite3.Connection) -> float:
-    """Get total dividends paid across all time."""
-    result = conn.execute("SELECT COALESCE(SUM(total_amount), 0) FROM dividends").fetchone()
-    return float(result[0])
-
-
-def get_founder_cumulative_dividends(conn: sqlite3.Connection) -> float:
-    """Get founder's cumulative dividend payouts across all time."""
-    result = conn.execute("SELECT COALESCE(SUM(founder_payout), 0) FROM dividends").fetchone()
-    return float(result[0])
-
-
-def get_retained_earnings(conn: sqlite3.Connection) -> float:
-    """Get retained earnings (cumulative profit minus cumulative dividends).
-
-    Retained earnings = revenue - costs - dividends_paid
-    Excludes: initial_funding (seed capital) and vc_investment (invested capital).
-    These are capital, not profit, and cannot be distributed as dividends.
-    """
-    # Revenue = subscription_payment (excluding initial_funding which is separate category now)
-    revenue = conn.execute(
-        "SELECT COALESCE(SUM(amount), 0) FROM ledger WHERE category = 'subscription_payment'"
-    ).fetchone()[0]
-
-    # Costs = all negative categories (compute, capacity, advertising, operations, development, etc.)
-    # Note: these are already negative values in the ledger
-    costs = conn.execute(
-        "SELECT COALESCE(SUM(amount), 0) FROM ledger WHERE category IN "
-        "('compute', 'capacity', 'advertising', 'operations', 'development', "
-        "'lead_acquisition_cost', 'market_research', 'group_research', 'research_project')"
-    ).fetchone()[0]
-
-    # Dividends already paid (negative in ledger)
-    dividends_paid = conn.execute(
-        "SELECT COALESCE(SUM(amount), 0) FROM ledger WHERE category = 'dividend'"
-    ).fetchone()[0]
-
-    # retained_earnings = revenue + costs (costs are negative) + dividends_paid (negative)
-    # This equals: revenue - |costs| - |dividends_paid|
-    return float(revenue + costs + dividends_paid)
-
-
-def get_dividend_history(conn: sqlite3.Connection) -> list:
-    """Get all dividend payments."""
-    result = conn.execute("SELECT * FROM dividends ORDER BY day").fetchall()
-    return [dict(row) for row in result]
-
 
 def record_config_override(conn: sqlite3.Connection, day: int, tool_name: str,
                            setting_type: str, settings: dict):

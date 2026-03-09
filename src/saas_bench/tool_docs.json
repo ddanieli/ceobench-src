@@ -274,7 +274,7 @@
     "impact": {
       "advertising": "Generates new leads. Each channel has a fixed leads-per-$1000 rate per customer group. Use set_ad_channel_spend for channel allocation, set_targeted_ad_spend for per-group targeting.",
       "operations": "CRITICAL: (1) REDUCES OUTAGE PROBABILITY - At $0: ~3% daily outage risk (~1/month). At $500: ~1.1% daily (~3/year). (2) Speeds up issue resolution: mean resolved/day = 1 + 0.01 \u00d7 spend. WARNING: Without ops spending, frequent outages damage reputation and cause churn!",
-      "development": "Dev spending improves product quality (amplified by model tier). Global improvement = 0.001 × ln(1 + global_spend/1000) per day (applies to all groups). Targeted per-group improvement = 0.005 × ln(1 + targeted_spend/1000) per day (5× coefficient, applies to that group only, stacks with global). delivered_quality = (base_product_quality + q_shared_bonus + q_group_bonus) × tier_multiplier."
+      "development": "Dev spending improves product quality (amplified by model tier). Global improvement = 0.001 \u00d7 ln(1 + global_spend/1000) per day (applies to all groups). Targeted per-group improvement = 0.005 \u00d7 ln(1 + targeted_spend/1000) per day (5\u00d7 coefficient, applies to that group only, stacks with global). delivered_quality = (base_product_quality + q_shared_bonus + q_group_bonus) \u00d7 tier_multiplier."
     },
     "example_call": {
       "tool": "set_daily_spend",
@@ -684,7 +684,7 @@
       "failure": "Invalid group IDs: {X}. Valid groups: S1-S3, E1-E3, ..."
     },
     "mechanics": {
-      "quality_bonus": "Per-group quality bonus ACCUMULATES daily: +0.005 × log(1 + spend/1000) per day (5× more efficient than global dev spend). At $5000/day: +0.00896/day cumulative. After 30 days: +0.269 total. Investment persists if spending stops.",
+      "quality_bonus": "Per-group quality bonus ACCUMULATES daily: +0.005 \u00d7 log(1 + spend/1000) per day (5\u00d7 more efficient than global dev spend). At $5000/day: +0.00896/day cumulative. After 30 days: +0.269 total. Investment persists if spending stops.",
       "scope": "Only affects subscribers in the targeted group (not global q_shared). Like building group-specific features \u2014 investment compounds over time.",
       "cost": "Extra dollars are deducted from cash daily as development cost"
     },
@@ -1227,10 +1227,6 @@
         "social_media_posts": "Customer social media posts. Sentiment is HIDDEN \u2014 must infer from content.",
         "enterprise_turns": "Enterprise customer negotiation turns. Each row is one turn in a conversation thread.",
         "notifications": "Agent inbox \u2014 all notifications and alerts.",
-        "shareholders": "Cap table \u2014 founder and VC investors.",
-        "funding_rounds": "Completed VC investment settlements.",
-        "vc_turns": "VC negotiation turns. Each row is one turn in a VC negotiation thread.",
-        "dividends": "Dividend payment history.",
         "research_projects": "R&D research projects (available, in-progress, completed).",
         "ad_channel_leads": "Advertising channel effectiveness history.",
         "group_info_levels": "Customer group discovery and research levels.",
@@ -1288,22 +1284,6 @@
         "",
         "# High-engagement posts (you must infer sentiment from content)",
         "rows('SELECT day, content, likes, shares FROM social_media_posts WHERE virality_score > 0.5 ORDER BY day DESC LIMIT 5')"
-      ],
-      "equity_analysis": [
-        "# Cap table",
-        "rows('SELECT name, shareholder_type, shares_held, shares_held * 100.0 / (SELECT SUM(shares_held) FROM shareholders) as pct FROM shareholders ORDER BY shares_held DESC')",
-        "",
-        "# Funding rounds",
-        "rows('SELECT fr.day, s.name, fr.shares_issued, fr.price_per_share, fr.total_amount FROM funding_rounds fr JOIN shareholders s ON fr.investor_shareholder_id=s.shareholder_id ORDER BY fr.day')",
-        "",
-        "# Total dividends paid",
-        "row('SELECT SUM(total_amount) FROM dividends')[0]",
-        "",
-        "# Active VC negotiations (latest turn per VC)",
-        "rows('SELECT vt.shareholder_id, s.name, vt.closed, vt.close_reason, vt.current_offer_share_pct, vt.current_offer_amount, vt.expiry_day FROM vc_turns vt JOIN shareholders s ON vt.shareholder_id=s.shareholder_id WHERE vt.message_id = (SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id=vt.shareholder_id) AND vt.closed = 0')",
-        "",
-        "# Accepted deals awaiting settlement",
-        "rows('SELECT vt.shareholder_id, s.name, vt.current_offer_share_pct, vt.current_offer_amount, vt.expiry_day FROM vc_turns vt JOIN shareholders s ON vt.shareholder_id=s.shareholder_id WHERE vt.message_id = (SELECT MAX(vt2.message_id) FROM vc_turns vt2 WHERE vt2.shareholder_id=vt.shareholder_id) AND vt.close_reason=\"accepted\"')"
       ],
       "pandas_examples": [
         "# Load data into DataFrame",
@@ -1685,7 +1665,7 @@
         "model_tiers": {
           "1": {
             "cost_per_usage_unit": 0.0003,
-            "quality_multiplier": 0.60,
+            "quality_multiplier": 0.6,
             "class": "Flash-Lite/4o-mini"
           },
           "2": {
@@ -1695,17 +1675,17 @@
           },
           "3": {
             "cost_per_usage_unit": 0.006,
-            "quality_multiplier": 0.90,
+            "quality_multiplier": 0.9,
             "class": "Sonnet/GPT-4o"
           },
           "4": {
             "cost_per_usage_unit": 0.012,
-            "quality_multiplier": 1.00,
+            "quality_multiplier": 1.0,
             "class": "Opus/GPT-5"
           },
           "5": {
             "cost_per_usage_unit": 0.03,
-            "quality_multiplier": 1.10,
+            "quality_multiplier": 1.1,
             "class": "o1/o3 reasoning"
           }
         },
@@ -1757,410 +1737,6 @@
           "label": "View cost structure",
           "input": {},
           "output": "=== Cost Structure ===\n\nModel Tiers (cost per usage unit):\n  Tier 1: $0.0003/unit (q=0.55) \u2014 Flash-Lite/4o-mini\n  Tier 2: $0.0020/unit (q=0.65) \u2014 Haiku/Flash\n  Tier 3: $0.0060/unit (q=0.75) \u2014 Sonnet/GPT-4o\n  Tier 4: $0.0120/unit (q=0.85) \u2014 Opus/GPT-5\n  Tier 5: $0.0300/unit (q=0.95) \u2014 o1/o3 reasoning\n\nCapacity Tiers:\n  Tier 0:     50,000 units/day    $85/day  \u2014 Serverless API\n  Tier 1:    200,000 units/day   $215/day  \u2014 1x H100 neocloud\n  ..."
-        }
-      ]
-    }
-  },
-  "list_potential_vcs": {
-    "name": "list_potential_vcs",
-    "category": "VC Negotiation",
-    "description": "List all predefined VC investors and their profiles. Shows each VC's name, investment range, description, and whether they have an active negotiation thread.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {}
-    },
-    "parameters": {},
-    "returns": {
-      "example": "=== Potential VC Investors ===\n\n  Horizon Ventures (vc_01)\n    Investment range: $100,000 \u2013 $500,000\n    Description: Early-stage micro-VC focused on AI/ML startups\n    Status: Available\n\n  Catalyst Capital (vc_02)\n    Investment range: $250,000 \u2013 $1,000,000\n    Description: Seed-stage fund investing in developer tools\n    Status: Active (shareholder_id=3)\n\nTotal: 30 VCs (1 currently active)",
-      "data": {
-        "vcs": [
-          {
-            "shareholder_id": "vc_01",
-            "name": "Horizon Ventures",
-            "description": "Early-stage micro-VC focused on AI/ML startups",
-            "min_equity_pct": 3.0,
-            "max_equity_pct": 8.0,
-            "status": "available"
-          }
-        ]
-      }
-    },
-    "impact": "Read-only. No cost. Use to understand your fundraising landscape before negotiating.",
-    "example_call": {
-      "tool": "list_potential_vcs",
-      "arguments": {}
-    },
-    "sample_io": {
-      "success": [
-        {
-          "label": "View all VCs",
-          "input": {},
-          "output": "=== Potential VC Investors ===\n\n  Horizon Ventures (vc_01)\n    Investment range: $100,000 \u2013 $500,000\n    Description: Early-stage micro-VC focused on AI/ML startups\n    Status: Available\n\n  Catalyst Capital (vc_02)\n    Investment range: $250,000 \u2013 $1,000,000\n    Description: Seed-stage fund investing in developer tools\n    Status: Active (shareholder_id=3)\n\n  ...27 more VCs...\n\nTotal: 30 VCs (1 currently active)"
-        }
-      ]
-    }
-  },
-  "send_vc_deal": {
-    "name": "send_vc_deal",
-    "category": "VC Negotiation",
-    "description": "Send equity offers to one or more VCs. Each deal includes share_pct and optional term sheet proposals. Terms have TWO effects: (1) NEGOTIATION: more VC-friendly terms lower the VC's equity target, making acceptance easier; (2) POST-DEAL: terms create ongoing obligations that can cost you money or dilute your equity.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "deals": {
-          "type": "array",
-          "description": "List of deals. Each has shareholder_id, share_pct, and optional term proposals.",
-          "items": {
-            "type": "object",
-            "properties": {
-              "shareholder_id": {
-                "type": "integer",
-                "description": "VC shareholder ID"
-              },
-              "share_pct": {
-                "type": "number",
-                "description": "Share percentage to offer (0.10 = 10%)"
-              },
-              "anti_dilution_floor": {
-                "type": "number",
-                "description": "One of [0.6, 0.7, 0.8, 0.9]"
-              },
-              "milestone_tranche_pct": {
-                "type": "number",
-                "description": "One of [0.3, 0.4, 0.5, 0.6, 0.7]"
-              },
-              "milestone_revenue_multiplier": {
-                "type": "number",
-                "description": "One of [1.5, 2.0, 2.5, 3.0]"
-              },
-              "milestone_deadline_days": {
-                "type": "integer",
-                "description": "One of [60, 90, 120, 180]"
-              },
-              "redemption_days": {
-                "type": "integer",
-                "description": "One of [90, 120, 180, 270, 365]"
-              },
-              "redemption_buyback_multiplier": {
-                "type": "number",
-                "description": "One of [1.0, 1.1, 1.2, 1.3, 1.5]"
-              }
-            },
-            "required": [
-              "shareholder_id",
-              "share_pct"
-            ]
-          }
-        }
-      },
-      "required": [
-        "deals"
-      ]
-    },
-    "parameters": {
-      "deals": {
-        "type": "list[Dict]",
-        "description": "List of deals. Each dict has 'shareholder_id' (required), 'share_pct' (required), and optional term proposals.",
-        "example": [
-          {
-            "shareholder_id": 2,
-            "share_pct": 0.12,
-            "anti_dilution_floor": 0.9
-          },
-          {
-            "shareholder_id": 3,
-            "share_pct": 0.08
-          }
-        ]
-      },
-      "deal_fields": {
-        "shareholder_id": "int (REQUIRED) \u2014 The VC's shareholder ID (from shareholders table or list_potential_vcs)",
-        "share_pct": "float (REQUIRED) \u2014 Share percentage to offer (0.10 = 10%). Higher = more equity given away = easier acceptance.",
-        "anti_dilution_floor": {
-          "type": "float (optional)",
-          "options": [
-            0.6,
-            0.7,
-            0.8,
-            0.9
-          ],
-          "negotiation_impact": "Higher floor = more VC-friendly \u2192 lowers VC's equity target by up to 5%. (0.6=no help, 0.9=max help)",
-          "post_deal_risk": "DILUTION RISK. If company valuation drops below floor \u00d7 original_valuation, VC automatically gets bonus shares (up to 5% of total shares). Higher floor = triggers more easily = worse for you."
-        },
-        "milestone_tranche_pct": {
-          "type": "float (optional)",
-          "options": [
-            0.3,
-            0.4,
-            0.5,
-            0.6,
-            0.7
-          ],
-          "negotiation_impact": "Lower % = more VC-friendly \u2192 contributes up to ~2.7% equity target reduction. (0.7=no help, 0.3=max help)",
-          "post_deal_risk": "CASH FLOW RISK. You only receive tranche_pct \u00d7 investment upfront. The rest (tranche 2) is released ONLY when MRR hits revenue_multiplier \u00d7 MRR_at_deal. If you miss the deadline, tranche 2 is FORFEITED \u2014 you lose that money permanently."
-        },
-        "milestone_revenue_multiplier": {
-          "type": "float (optional)",
-          "options": [
-            1.5,
-            2.0,
-            2.5,
-            3.0
-          ],
-          "negotiation_impact": "Higher = harder target = more VC-friendly \u2192 contributes up to ~2.7% equity target reduction. (1.5=no help, 3.0=max help)",
-          "post_deal_risk": "MILESTONE TARGET. Tranche 2 releases when MRR reaches this multiplier \u00d7 MRR_at_deal_time. 3.0\u00d7 means you need to triple MRR. Higher = harder to achieve = more likely to forfeit tranche 2."
-        },
-        "milestone_deadline_days": {
-          "type": "int (optional)",
-          "options": [
-            60,
-            90,
-            120,
-            180
-          ],
-          "negotiation_impact": "Shorter = more pressure = more VC-friendly \u2192 contributes up to ~2.7% equity target reduction. (180=no help, 60=max help)",
-          "post_deal_risk": "TIME LIMIT. If MRR doesn't hit the milestone target within this many days, tranche 2 is permanently forfeited. 60 days is very tight."
-        },
-        "redemption_days": {
-          "type": "int (optional)",
-          "options": [
-            90,
-            120,
-            180,
-            270,
-            365
-          ],
-          "negotiation_impact": "Shorter = VC gets power sooner = more VC-friendly \u2192 contributes up to 3% equity target reduction. (365=no help, 90=max help)",
-          "post_deal_risk": "BANKRUPTCY RISK. After this many days post-deal, the VC AUTOMATICALLY forces a buyback at buyback_multiplier \u00d7 their total investment. This is a MANDATORY CASH OUTFLOW. If you don't have enough cash, you go bankrupt. 90 days = buyback demand comes very soon."
-        },
-        "redemption_buyback_multiplier": {
-          "type": "float (optional)",
-          "options": [
-            1.0,
-            1.1,
-            1.2,
-            1.3,
-            1.5
-          ],
-          "negotiation_impact": "Higher = costlier buyback = more VC-friendly \u2192 contributes up to 3% equity target reduction. (1.0=no help, 1.5=max help)",
-          "post_deal_risk": "CASH DRAIN. When redemption triggers, you pay multiplier \u00d7 total_invested. At 1.5\u00d7, a $1M investment means $1.5M mandatory payout. VC returns all shares after buyback."
-        }
-      }
-    },
-    "returns": {
-      "success": "Processed 2/2 deals:\n  Apex Capital: ACCEPTED! 12.0% for $500,000. Use settle_investments() to finalize.\n  Summit Ventures: Offer sent. Awaiting VC response...",
-      "failure": "Shareholder #2: no open negotiation thread / anti_dilution_floor must be one of [0.6, 0.7, 0.8, 0.9]"
-    },
-    "impact": "NEGOTIATION EFFECT: More VC-friendly terms lower the VC's effective equity target (up to ~19% total). This means you can offer less equity and still get acceptance. TRADE-OFF: Each term creates post-deal obligations \u2014 anti-dilution can dilute you, milestones can forfeit cash, redemption can force a large buyback. The VC's notification shows which terms they're requesting (if any). You can propose different values for those terms, or omit terms entirely. Only include terms the VC has in their approach.",
-    "example_call": {
-      "tool": "send_vc_deal",
-      "arguments": {
-        "deals": [
-          {
-            "shareholder_id": 2,
-            "share_pct": 0.1,
-            "anti_dilution_floor": 0.9,
-            "milestone_tranche_pct": 0.3
-          }
-        ]
-      }
-    },
-    "internal_notes": "Effective target = base_target * (1 - term_friendliness_adjustment). Anti-dilution: floor 0.6\u21920.9 maps to 0\u21920.05 bump. Milestone: tranche_pct 0.7\u21920.3 = 0\u21920.04, rev_multiplier 1.5\u21923.0 = 0\u21920.02, deadline 180\u219260 = 0\u21920.02. Redemption: days 365\u219290 = 0\u21920.03, buyback 1.0\u21921.5 = 0\u21920.03. Max combined ~0.19. VC counter-offer delay = 1-3 days.",
-    "sample_io": {
-      "success": [
-        {
-          "label": "Accepted with term adjustment",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2,
-                "share_pct": 0.12,
-                "anti_dilution_floor": 0.9
-              }
-            ]
-          },
-          "output": "Processed 1/1 deals:\n  Apex Capital: ACCEPTED! 12.0% for $500,000. Term adjustment: +0.0350. Use settle_investments() to finalize."
-        },
-        {
-          "label": "Batch: one accepted, one pending",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2,
-                "share_pct": 0.12
-              },
-              {
-                "shareholder_id": 3,
-                "share_pct": 0.05
-              }
-            ]
-          },
-          "output": "Processed 2/2 deals:\n  Apex Capital: ACCEPTED! 12.0% for $500,000. Use settle_investments() to finalize.\n  Summit Ventures: Offer sent (5.0%). Awaiting VC response..."
-        },
-        {
-          "label": "With milestone terms",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 4,
-                "share_pct": 0.1,
-                "milestone_tranche_pct": 0.3,
-                "milestone_revenue_multiplier": 3.0,
-                "milestone_deadline_days": 60
-              }
-            ]
-          },
-          "output": "Processed 1/1 deals:\n  Growth Partners: Offer sent (10.0%). Term adjustment: +0.0800. Awaiting VC response..."
-        }
-      ],
-      "failure": [
-        {
-          "label": "Invalid term option",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2,
-                "share_pct": 0.1,
-                "anti_dilution_floor": 0.55
-              }
-            ]
-          },
-          "output": "Processed 0/1 deals (1 failed):\n  Apex Capital: anti_dilution_floor must be one of [0.6, 0.7, 0.8, 0.9]"
-        },
-        {
-          "label": "No open thread",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 99,
-                "share_pct": 0.1
-              }
-            ]
-          },
-          "output": "Processed 0/1 deals (1 failed):\n  Shareholder #99: no open negotiation thread"
-        },
-        {
-          "label": "Already settled",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2,
-                "share_pct": 0.1
-              }
-            ]
-          },
-          "output": "Processed 0/1 deals (1 failed):\n  Apex Capital: thread already closed (settled)"
-        }
-      ]
-    }
-  },
-  "reject_vc_deal": {
-    "name": "reject_vc_deal",
-    "category": "VC Negotiation",
-    "description": "Reject one or more VC deals. List-based: takes a list of deals, each identified by shareholder_id. The system finds the VC's open negotiation thread automatically. PERMANENTLY terminates the negotiation. No relationship penalty applies for VC rejections.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "deals": {
-          "type": "array",
-          "description": "List of deals to reject. Each has shareholder_id.",
-          "items": {
-            "type": "object",
-            "properties": {
-              "shareholder_id": {
-                "type": "integer",
-                "description": "VC shareholder ID"
-              }
-            },
-            "required": [
-              "shareholder_id"
-            ]
-          }
-        }
-      },
-      "required": [
-        "deals"
-      ]
-    },
-    "parameters": {
-      "deals": {
-        "type": "list[Dict]",
-        "description": "List of deals to reject. Each dict has 'shareholder_id' (required).",
-        "example": [
-          {
-            "shareholder_id": 2
-          },
-          {
-            "shareholder_id": 3
-          }
-        ]
-      }
-    },
-    "returns": {
-      "success": "Processed 2/2 rejections:\n  Apex Capital: deal rejected.\n  Summit Ventures: deal rejected.",
-      "failure": "Shareholder #2: no open negotiation thread / Shareholder #99: not found"
-    },
-    "impact": "Irreversible but with NO penalties. Unlike enterprise, rejecting VC deals does not damage any relationship scores. Use when the VC's terms are unacceptable.",
-    "example_call": {
-      "tool": "reject_vc_deal",
-      "arguments": {
-        "deals": [
-          {
-            "shareholder_id": 2
-          }
-        ]
-      }
-    },
-    "sample_io": {
-      "success": [
-        {
-          "label": "Reject single deal",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2
-              }
-            ]
-          },
-          "output": "Processed 1/1 rejections:\n  Apex Capital: deal rejected."
-        },
-        {
-          "label": "Reject multiple",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2
-              },
-              {
-                "shareholder_id": 3
-              }
-            ]
-          },
-          "output": "Processed 2/2 rejections:\n  Apex Capital: deal rejected.\n  Summit Ventures: deal rejected."
-        }
-      ],
-      "failure": [
-        {
-          "label": "Already settled",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 2
-              }
-            ]
-          },
-          "output": "Processed 0/1 rejections (1 failed):\n  Apex Capital: thread already closed (settled)"
-        },
-        {
-          "label": "No open thread",
-          "input": {
-            "deals": [
-              {
-                "shareholder_id": 99
-              }
-            ]
-          },
-          "output": "Processed 0/1 rejections (1 failed):\n  Shareholder #99: no open negotiation thread"
         }
       ]
     }
@@ -2287,198 +1863,10 @@
       ]
     }
   },
-  "get_cap_table_info": {
-    "name": "get_cap_table_info",
-    "category": "Equity & Funding",
-    "description": "View the current ownership (cap table), funding history, and dividend history. Shows all shareholders, their share counts, ownership percentages, and investment history.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {}
-    },
-    "parameters": {},
-    "returns": {
-      "success": "=== Cap Table ===\nTotal Shares Outstanding: 12,048,193\n\nShareholder               Type    Shares      Ownership  Invested\n---------------------------------------------------------------------------\nFounder                   founder 10,000,000  83.0%      $0\nApex Capital              vc      2,048,193   17.0%      $608,390\n\n--- Funding History (1 rounds) ---\nDay 15: Apex Capital invested $608,390 for 2,048,193 shares @ $0.2970/share\n\n--- Dividend History ---\nDay 30: $50,000 total ($0.0042/share)\n  Founder: $41,500 | Apex Capital: $8,500\n\nCumulative dividends: $50,000",
-      "data": {
-        "shareholders": [
-          {
-            "name": "Founder",
-            "shareholder_type": "founder",
-            "shares_held": 10000000,
-            "ownership_pct": 83.0,
-            "total_invested": 0
-          }
-        ],
-        "total_shares": 12048193,
-        "funding_rounds": [
-          {
-            "day": 15,
-            "shareholder": "Apex Capital",
-            "amount": 608390,
-            "shares_issued": 2048193,
-            "price_per_share": 0.297
-          }
-        ],
-        "dividends": [
-          {
-            "day": 30,
-            "total_amount": 50000,
-            "founder_payout": 41500
-          }
-        ]
-      }
-    },
-    "impact": "Read-only. Use to monitor ownership dilution, track funding rounds, and review dividend payments.",
-    "example_call": {
-      "tool": "get_cap_table_info",
-      "arguments": {}
-    },
-    "sample_io": {
-      "success": [
-        {
-          "label": "Early stage (founder only)",
-          "input": {},
-          "output": "=== Cap Table ===\nTotal Shares Outstanding: 10,000,000\n\nShareholder               Type    Shares      Ownership  Invested\n---------------------------------------------------------------------------\nFounder                   founder 10,000,000  100.0%     $0\n\n--- Funding History (0 rounds) ---\nNo funding rounds yet.\n\n--- Dividend History ---\nNo dividends declared yet."
-        },
-        {
-          "label": "Post-funding",
-          "input": {},
-          "output": "=== Cap Table ===\nTotal Shares Outstanding: 12,048,193\n\nShareholder               Type    Shares      Ownership  Invested\n---------------------------------------------------------------------------\nFounder                   founder 10,000,000  83.0%      $0\nApex Capital              vc      2,048,193   17.0%      $608,390\n\n--- Funding History (1 rounds) ---\nDay 15: Apex Capital invested $608,390 for 2,048,193 shares @ $0.2970/share\n\n--- Dividend History ---\nDay 30: $50,000 total ($0.0042/share)\n  Founder: $41,500 | Apex Capital: $8,500\n\nCumulative dividends: $50,000"
-        }
-      ]
-    }
-  },
-  "settle_investments": {
-    "name": "settle_investments",
-    "category": "Equity & Funding",
-    "description": "Settle ALL accepted VC deals at once. Takes NO parameters. Automatically finds all accepted deals, validates they have the same price/share and total dilution < 100%, issues shares, and adds investment cash. Also auto-rejects all remaining open (non-accepted) VC threads.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {}
-    },
-    "parameters": {},
-    "returns": {
-      "success": "=== Settlement Executed ===\n\n  Apex Capital: $500,000 \u2192 1,764,706 shares (15.0% equity) @ $0.2833/share\n  Summit Ventures: $300,000 \u2192 882,353 shares (7.5% equity) @ $0.3400/share\n\nTotal investment: $800,000\nNew total shares: 12,647,059\nFounder ownership: 79.1%",
-      "failure": "No accepted VC deals to settle. / Total accepted equity = 120.0% (>= 100%). Cannot settle. Reject some deals first. / All accepted deals must use the same price/share."
-    },
-    "impact": "CRITICAL: Issues new shares (dilutes founder), adds cash, auto-rejects all open threads. Accepted deals expire if not settled before expiry_day. Settlement is irreversible.",
-    "example_call": {
-      "tool": "settle_investments",
-      "arguments": {}
-    },
-    "internal_notes": "Finds all threads with close_reason='accepted' and expiry_day > current_day (excludes expired offers). Deduplicates by shareholder_id (only latest accepted thread per VC). Auto-rejects all open threads (closed=0). Validates same price/share (1% tolerance) and total dilution < 100%. Issues shares: new_shares = (share_pct / (1 - share_pct)) * existing_total. Marks settled threads with close_reason='settled'.",
-    "sample_io": {
-      "success": [
-        {
-          "label": "Settle one accepted deal",
-          "input": {},
-          "output": "=== Settlement Executed ===\n\n  Apex Capital: $500,000 \u2192 1,764,706 shares (15.0% equity) @ $0.2833/share\n\nTotal investment: $500,000\nNew total shares: 11,764,706\nFounder ownership: 85.0%"
-        },
-        {
-          "label": "Settle two deals, auto-reject one open",
-          "input": {},
-          "output": "=== Settlement Executed ===\n\nAuto-rejected 1 open thread(s): Growth Partners\n\n  Apex Capital: $500,000 \u2192 1,764,706 shares (15.0% equity) @ $0.2833/share\n  Summit Ventures: $300,000 \u2192 882,353 shares (7.5% equity) @ $0.3400/share\n\nTotal investment: $800,000\nNew total shares: 12,647,059\nFounder ownership: 79.1%"
-        }
-      ],
-      "failure": [
-        {
-          "label": "No accepted deals",
-          "input": {},
-          "output": "No accepted VC deals to settle."
-        },
-        {
-          "label": "Price mismatch",
-          "input": {},
-          "output": "All accepted deals must use the same price/share. Got range $0.2833 - $0.5000. Reject mismatched deals before settling."
-        },
-        {
-          "label": "Over 100% dilution",
-          "input": {},
-          "output": "Total accepted equity = 120.0% (>= 100%). Cannot settle. Reject some deals first."
-        }
-      ]
-    }
-  },
-  "declare_dividend": {
-    "name": "declare_dividend",
-    "category": "Equity & Funding",
-    "description": "Declare a dividend from RETAINED EARNINGS (cumulative profit), distributed pro-rata to all shareholders. You can ONLY distribute from profits \u2014 not from invested capital (seed funding or VC investments). This is the PRIMARY way to extract value from the business.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "amount": {
-          "type": "number",
-          "description": "Total dividend amount to distribute"
-        }
-      },
-      "required": [
-        "amount"
-      ]
-    },
-    "parameters": {
-      "amount": {
-        "type": "float",
-        "description": "Total dividend amount to distribute (must not exceed retained earnings or available cash)",
-        "example": 100000
-      }
-    },
-    "returns": {
-      "success": "=== Dividend Declared ===\nTotal: $100,000 | Per share: $0.0083\n\n  Founder: $83,000 (10,000,000 shares)\n  Apex Capital: $17,000 (2,048,193 shares)\n\nCumulative dividends paid: $150,000\nRemaining retained earnings: $50,000",
-      "failure": "No retained earnings available / Amount exceeds retained earnings ($X available) / Insufficient cash"
-    },
-    "impact": "Deducts cash from the business. Can only distribute from accumulated profits (revenue minus costs), not from invested capital. Your cumulative founder dividends are the PRIMARY objective \u2014 maximize the founder's share of cumulative dividends over the simulation. Dividends are distributed pro-rata by shares, so dilution directly reduces your dividend income.",
-    "example_call": {
-      "tool": "declare_dividend",
-      "arguments": {
-        "amount": 50000
-      }
-    },
-    "internal_notes": "Retained earnings = SUM(ledger.amount) - SUM(dividends.total_amount) - total_vc_invested. VC investment cash cannot be distributed. Pro-rata: each shareholder gets (their_shares / total_shares) * amount. Founder payout tracked in dividends.founder_payout.",
-    "sample_io": {
-      "success": [
-        {
-          "label": "Standard dividend",
-          "input": {
-            "amount": 100000
-          },
-          "output": "=== Dividend Declared ===\nTotal: $100,000 | Per share: $0.008300\n\n  Founder: $83,000.00 (10,000,000 shares)\n  Apex Capital: $17,000.00 (2,048,193 shares)\n\nCumulative dividends paid: $150,000 (Founder: $124,500)\nRemaining retained earnings: $50,000"
-        },
-        {
-          "label": "Small dividend",
-          "input": {
-            "amount": 10000
-          },
-          "output": "=== Dividend Declared ===\nTotal: $10,000 | Per share: $0.001000\n\n  Founder: $10,000.00 (10,000,000 shares)\n\nCumulative dividends paid: $10,000 (Founder: $10,000)\nRemaining retained earnings: $25,000"
-        }
-      ],
-      "failure": [
-        {
-          "label": "Exceeds retained earnings",
-          "input": {
-            "amount": 1000000
-          },
-          "output": "Amount exceeds retained earnings. Available: $150,000, Requested: $1,000,000"
-        },
-        {
-          "label": "No retained earnings",
-          "input": {
-            "amount": 5000
-          },
-          "output": "No retained earnings available for dividends. Retained earnings: $-12,000"
-        },
-        {
-          "label": "Insufficient cash",
-          "input": {
-            "amount": 100000
-          },
-          "output": "Insufficient cash. Available: $45,000, Requested: $100,000"
-        }
-      ]
-    }
-  },
   "next_day": {
     "name": "next_day",
     "category": "Simulation Control",
-    "description": "Advance the simulation by one day and receive the next day's dashboard. NOTE: This call may take a long time (minutes) at large subscriber counts as the simulator processes billing, churn, usage, and reputation for every customer. This is normal — just wait for the response.",
+    "description": "Advance the simulation by one day and receive the next day's dashboard. NOTE: This call may take a long time (minutes) at large subscriber counts as the simulator processes billing, churn, usage, and reputation for every customer. This is normal \u2014 just wait for the response.",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -2503,18 +1891,15 @@
       "7. Fixed costs deducted (capacity, operations, development, advertising)",
       "8. Social posts generated based on satisfaction",
       "9. Enterprise negotiations processed (customer replies, timeouts)",
-      "10. VC negotiations processed (counter-offers delivered)",
-      "11. Each predefined VC independently rolls for daily approach (per-VC probability)",
-      "12. Deal expiry processed (accepted-but-unsettled deals + stale threads)",
-      "13. Reputation updated",
-      "14. Dashboard built and returned (includes Equity & Funding section)"
+      "10. Reputation updated",
+      "11. Dashboard built and returned"
     ],
     "impact": "This is the main action that advances time. All configuration changes take effect when next_day is called.",
     "example_call": {
       "tool": "next_day",
       "arguments": {}
     },
-    "internal_notes": "Full simulation step order: daily_calcs \u2192 shocks/events \u2192 lead_generation \u2192 billing_cycle (re-evaluate, churn, renew, bill) \u2192 usage_sim \u2192 service_metrics \u2192 cost_accounting \u2192 social_posts \u2192 enterprise_negotiation_processing \u2192 vc_negotiation_processing \u2192 vc_approach_rolls \u2192 deal_expiry \u2192 reputation_update \u2192 dashboard_build. Hidden state updated: customer_state (satisfaction, relationship), group_reputation, group_awareness, group_parameters (drift).",
+    "internal_notes": "Full simulation step order: daily_calcs \u2192 shocks/events \u2192 lead_generation \u2192 billing_cycle (re-evaluate, churn, renew, bill) \u2192 usage_sim \u2192 service_metrics \u2192 cost_accounting \u2192 social_posts \u2192 enterprise_negotiation_processing \u2192 reputation_update \u2192 dashboard_build. Hidden state updated: customer_state (satisfaction, relationship), group_reputation, group_awareness, group_parameters (drift).",
     "sample_io": {
       "success": [
         {
@@ -2527,12 +1912,12 @@
         {
           "label": "Bankruptcy",
           "input": {},
-          "output": "GAME OVER \u2014 BANKRUPT! Cash dropped below $0 on day 46.\n\nFinal stats: 145 subscribers, $12,350 MRR, $-1,234 cash.\nFounder cumulative dividends: $50,000."
+          "output": "GAME OVER \u2014 BANKRUPT! Cash dropped below $0 on day 46.\n\nFinal stats: 145 subscribers, $12,350 MRR, $-1,234 cash.\n"
         },
         {
           "label": "Simulation complete",
           "input": {},
-          "output": "SIMULATION COMPLETE! Final day reached.\n\nFinal stats: 12,000 subscribers, $1,250,000 MRR, $8,500,000 cash.\nFounder cumulative dividends: $11,195,040."
+          "output": "SIMULATION COMPLETE! Final day reached.\n\nFinal stats: 12,000 subscribers, $1,250,000 MRR, $8,500,000 cash.\n"
         }
       ]
     }
@@ -3028,7 +2413,7 @@
     },
     "parameters": {},
     "returns": {
-      "success": "=== Available Database Tables (17) ===\n\n  customers \u2014 All customers (small and enterprise)\n  subscriptions \u2014 Subscription records\n  daily_usage \u2014 Daily usage data per subscription\n  ledger \u2014 Financial ledger \u2014 all income and expenses\n  ..."
+      "success": "=== Available Database Tables (14) ===\n\n  customers \u2014 All customers (small and enterprise)\n  subscriptions \u2014 Subscription records\n  daily_usage \u2014 Daily usage data per subscription\n  ledger \u2014 Financial ledger \u2014 all income and expenses\n  ..."
     },
     "impact": "Read-only. No cost. Use to discover what tables exist before diving into column details with describe_tables().",
     "example_call": {
@@ -3040,7 +2425,7 @@
         {
           "label": "List all tables",
           "input": {},
-          "output": "=== Available Database Tables (17) ===\n\n  customers \u2014 All customers (small and enterprise)\n  subscriptions \u2014 Subscription records\n  daily_usage \u2014 Daily usage data per subscription\n  ledger \u2014 Financial ledger \u2014 all income and expenses\n  service_day \u2014 Daily aggregate metrics and system state\n  config_history \u2014 History of all configuration changes\n  social_media_posts \u2014 Customer social media posts\n  enterprise_turns \u2014 Enterprise negotiation message threads\n  notifications \u2014 Inbox notifications (enterprise leads, VC offers, events)\n  shareholders \u2014 Current equity holders and ownership percentages\n  funding_rounds \u2014 Completed funding rounds\n  vc_turns \u2014 VC negotiation message threads\n  dividends \u2014 Dividend distribution history\n  research_projects \u2014 R&D research project status and results\n  ad_channel_leads \u2014 Per-channel advertising lead generation stats\n  group_info_levels \u2014 Information levels for customer group research\n  issues \u2014 Customer support issues\n\nUse describe_tables(table_names=[...]) for detailed column schemas."
+          "output": "=== Available Database Tables (14) ===\n\n  customers \u2014 All customers (small and enterprise)\n  subscriptions \u2014 Subscription records\n  daily_usage \u2014 Daily usage data per subscription\n  ledger \u2014 Financial ledger \u2014 all income and expenses\n  service_day \u2014 Daily aggregate metrics and system state\n  config_history \u2014 History of all configuration changes\n  social_media_posts \u2014 Customer social media posts\n  enterprise_turns \u2014 Enterprise negotiation message threads\n  research_projects \u2014 R&D research project status and results\n  ad_channel_leads \u2014 Per-channel advertising lead generation stats\n  group_info_levels \u2014 Information levels for customer group research\n  issues \u2014 Customer support issues\n\nUse describe_tables(table_names=[...]) for detailed column schemas."
         }
       ]
     }
@@ -3095,10 +2480,6 @@
       "social_media_posts",
       "enterprise_turns",
       "notifications",
-      "shareholders",
-      "funding_rounds",
-      "vc_turns",
-      "dividends",
       "research_projects",
       "ad_channel_leads",
       "group_info_levels",
@@ -3134,7 +2515,7 @@
               "ledger"
             ]
           },
-          "output": "=== ledger ===\nFinancial ledger \u2014 all income and expenses\n\n  id: INTEGER PRIMARY KEY \u2014 Unique entry ID\n  day: INTEGER \u2014 Simulation day\n  category: TEXT \u2014 Category: 'subscription_payment', 'compute', 'capacity', 'advertising', 'operations', 'development', 'lead_acquisition_cost', 'vc_investment', 'dividend', 'initial_funding', 'market_research', 'group_research', 'research_project'\n  amount: REAL \u2014 Amount (positive=income, negative=expense)\n  note: TEXT \u2014 Description of the transaction"
+          "output": "=== ledger ===\nFinancial ledger \u2014 all income and expenses\n\n  id: INTEGER PRIMARY KEY \u2014 Unique entry ID\n  day: INTEGER \u2014 Simulation day\n  category: TEXT \u2014 Category: 'subscription_payment', 'compute', 'capacity', 'advertising', 'operations', 'development', 'lead_acquisition_cost', 'initial_funding', 'market_research', 'group_research', 'research_project'\n  amount: REAL \u2014 Amount (positive=income, negative=expense)\n  note: TEXT \u2014 Description of the transaction"
         },
         {
           "label": "All tables (no args)",

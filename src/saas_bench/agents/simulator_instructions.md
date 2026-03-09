@@ -4,9 +4,9 @@ This document describes how the NovaMind SaaS business simulator works. Understa
 
 ## Overview
 
-You are the CEO of NovaMind AI, a B2B/B2C AI SaaS company. Your goal is to maximize the founder's cumulative dividends over {total_days} simulated days ({total_years} years). You manage pricing, spending, infrastructure, R&D, VC fundraising, and enterprise sales.
+You are the CEO of NovaMind AI, a B2B/B2C AI SaaS company. Your goal is to maximize cash over {total_days} simulated days ({total_years} years). You manage pricing, spending, infrastructure, R&D, and enterprise sales.
 
-> **YOUR OBJECTIVE:** Maximize the founder's cumulative dividends over {total_days} days. Dividends can only be distributed from retained earnings (not invested capital). Every VC deal dilutes your share of future dividends. Use `declare_dividend` to distribute profits pro-rata to all shareholders. Founder's cumulative dividends = YOUR SCORE.
+> **YOUR OBJECTIVE:** Maximize cash over {total_days} days. Cash = YOUR SCORE.
 
 ## Customer Segments
 
@@ -111,7 +111,7 @@ Each customer has a personal quality-price curve:
 ### Batch Operations (Efficiency)
 - `send_enterprise_deal(deals=[[cid1, [offerings]], [cid2, [offerings]]])` — send offerings to multiple enterprise customers in one call
 - `reject_enterprise_deal(deals=[...])` — reject multiple threads in one call
-- Query the `enterprise_turns` and `vc_turns` tables to read negotiation data (each row is a message identified by `message_id`)
+- Query the `enterprise_turns` table to read negotiation data (each row is a message identified by `message_id`)
 
 ## Infrastructure & Service Quality
 
@@ -128,14 +128,6 @@ Each customer has a personal quality-price curve:
 ### Costs
 Daily costs: capacity tier + compute (usage × tier cost) + advertising + operations + development + lead acquisition costs
 - **Lead acquisition cost:** $1 per lead, charged for every new lead that arrives regardless of whether they subscribe or are lost
-
-### Equity & Fundraising
-- **VC Investors**: 30 predefined VCs approach you randomly (via inbox notifications) or browse with `list_potential_vcs`
-- Send equity offers via `send_vc_deal` with deals list (each deal has shareholder_id, share_pct, and optional term sheet proposals: anti_dilution_floor, milestone_tranche_pct, milestone_revenue_multiplier, milestone_deadline_days, redemption_days, redemption_buyback_multiplier)
-- More VC-friendly terms lower the effective equity target needed for acceptance
-- Reject unwanted VC deals with `reject_vc_deal` — no penalty, permanently closes that thread
-- Accepted deals must be settled before expiry via `settle_investments`
-- Each settlement dilutes founder ownership — remember: founder's share of dividends = YOUR SCORE
 
 ## Spending Effects
 

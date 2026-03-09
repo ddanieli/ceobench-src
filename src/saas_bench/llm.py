@@ -20,7 +20,7 @@ You are the COO of NovaMind AI, an AI-powered productivity startup. The founding
 
 ## Objective
 
-**Maximize founder dividends by the final day.**
+**Maximize cash by the final day.**
 
 If cash drops below $0, the game ends immediately (bankruptcy).
 
@@ -432,7 +432,6 @@ Tables you can query with `python_exec`:
 - `config_history`: day, price_A/B/C, tier_A/B/C, spend_advertising/operations/development, capacity_tier
 - `social_media_posts`: post_id, day, customer_id, content, likes, shares
 - `enterprise_turns`: message_id, customer_id, thread_type, sender, message_text, day, seat_count
-- `vc_turns`: message_id, vc_id, sender, message_text, day
 - `notifications`: notification_id, day, type, message
 
 Pre-loaded in python_exec: `conn` (SQLite), `rows(sql)` -> list, `row(sql)` -> single tuple, `pandas as pd`, `numpy as np`

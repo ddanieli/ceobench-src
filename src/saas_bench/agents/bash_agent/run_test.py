@@ -373,7 +373,7 @@ class BashAgentRunner:
                 'daily_usage', 'service_day', 'ledger', 'config_history',
                 'ad_channel_leads', 'events', 'reputation_history',
                 'api_costs', 'social_media_posts', 'notifications',
-                'issues', 'dividends', 'funding_rounds',
+                'issues',
             ]
             for table in day_tables:
                 try:
@@ -390,8 +390,6 @@ class BashAgentRunner:
             )
             # Clean up enterprise turns created after checkpoint
             self.conn.execute("DELETE FROM enterprise_turns WHERE day > ?", (cp_day,))
-            # Clean up vc turns created after checkpoint
-            self.conn.execute("DELETE FROM vc_turns WHERE day > ?", (cp_day,))
             self.conn.commit()
             print(f"  Cleaned partial data for days > {cp_day}")
 
@@ -794,8 +792,8 @@ class BashAgentRunner:
                     outage=last_result.outage,
                     group_reputations=get_all_group_reputations(self.conn),
                     group_awareness=get_all_group_awareness(self.conn),
-                    total_dividends=last_result.total_dividends_paid,
-                    founder_dividends=last_result.founder_cumulative_dividends,
+                    total_cash=last_result.total_cash_paid,
+                    final_cash=last_result.cash,
                 )
 
             # Per-day timing summary
@@ -811,7 +809,7 @@ class BashAgentRunner:
                              turns=turns_today,
                              subs=_subs,
                              cash=last_result.cash if last_result else 0,
-                             dividends=last_result.founder_cumulative_dividends if last_result else 0)
+                             cash_balance=last_result.cash if last_result else 0)
 
             # Print per-day timing summary to stderr (visible in logs)
             import sys as _sys

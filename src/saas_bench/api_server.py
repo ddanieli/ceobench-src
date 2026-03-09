@@ -22,7 +22,6 @@ _HIDDEN_TABLES: Set[str] = {
     'events',             # Internal shock/event tracking
     'api_costs',          # Meta-simulation API cost tracking
     'customer_state',     # Internal satisfaction/relationship state
-    'shareholders',       # Internal equity table (use VC tools instead)
 }
 
 _HIDDEN_COLUMNS: Set[str] = {
@@ -454,12 +453,6 @@ _TOOL_DISPATCH = {
     'log_rationale': lambda tools, args: tools.log_rationale(args.get('rationale', args.get('text', ''))),
     'start_research_project': lambda tools, args: tools.start_research_project(args.get('tier', args.get('project_id', ''))),
     'list_research_projects': lambda tools, args: tools.list_research_projects(),
-    'list_potential_vcs': lambda tools, args: tools.list_potential_vcs(),
-    'send_vc_deal': lambda tools, args: tools.send_vc_deal(deals=args.get('deals', [])),
-    'reject_vc_deal': lambda tools, args: tools.reject_vc_deal(deals=args.get('deals', [])),
-    'get_cap_table_info': lambda tools, args: tools.get_cap_table_info(),
-    'settle_investments': lambda tools, args: tools.settle_investments(),
-    'declare_dividend': lambda tools, args: tools.declare_dividend(args.get('amount', 0)),
     'research_market': lambda tools, args: tools.research_market(),
     'research_group': lambda tools, args: tools.research_group(args.get('group_id', ''), args.get('target_level')),
     'get_market_overview': lambda tools, args: tools.get_market_overview(),

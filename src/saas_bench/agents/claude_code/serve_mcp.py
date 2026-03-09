@@ -417,13 +417,6 @@ class SaaSBenchMCPServer:
             "start_research_project": lambda args: tools.start_research_project(args.get("project_id", "")),
             "list_research_projects": lambda args: tools.list_research_projects(),
 
-            # === VC Negotiation & Equity ===
-            "list_potential_vcs": lambda args: tools.list_potential_vcs(),
-            "send_vc_deal": lambda args: tools.send_vc_deal(deals=args.get("deals", [])),
-            "reject_vc_deal": lambda args: tools.reject_vc_deal(deals=args.get("deals", [])),
-            "get_cap_table": lambda args: tools.get_cap_table_info(),
-            "settle_investments": lambda args: tools.settle_investments(),
-            "declare_dividend": lambda args: tools.declare_dividend(args.get("amount", 0)),
 
             # === Market Discovery ===
             "research_market": lambda args: tools.research_market(),

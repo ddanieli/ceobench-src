@@ -67,14 +67,6 @@ cost_info = nm.infrastructure.get_cost_info()
 nm.enterprise.send_enterprise_deal(deals=[[customer_id, [["B", 50.0, 6]]]])
 nm.enterprise.reject_enterprise_deal(deals=[[customer_id]])
 
-# === VC & Equity ===
-vcs = nm.vc.list_potential_vcs()
-nm.vc.send_vc_deal(deals=[{"shareholder_id": "vc_001", "share_pct": 5.0}])
-nm.vc.reject_vc_deal(deals=[{"shareholder_id": "vc_001"}])
-cap = nm.vc.get_cap_table_info()
-nm.vc.settle_investments()
-nm.vc.declare_dividend(amount=100000)
-
 # === Market Research ===
 nm.market.research_market()               # $25K, 30% chance to discover a new group
 nm.market.research_group(group_id="D_S01") # Upgrade info level on a discovered group
@@ -120,7 +112,6 @@ For full parameter details, types, return values, and examples — read the JSON
 cat docs/api/pricing.json     # set_prices, set_model_tiers, set_usage_quotas, set_promotion
 cat docs/api/marketing.json   # set_daily_spend, set_ad_channel_spend, set_targeted_ad_spend, set_ads_strength, set_lead_promotion
 cat docs/api/enterprise.json  # send_enterprise_deal, reject_enterprise_deal
-cat docs/api/vc.json          # list_potential_vcs, send_vc_deal, reject_vc_deal, get_cap_table_info, settle_investments, declare_dividend
 cat docs/api/market.json      # research_market, research_group, get_market_overview, get_group_insights
 cat docs/api/research.json    # start_research_project, list_research_projects
 cat docs/api/analytics.json   # get_social_posts, set_targeted_ops_spend, set_targeted_dev_spend, log_rationale
@@ -135,7 +126,6 @@ To understand the simulator's data model, read table schemas in `docs/tables/`:
 cat docs/tables/customers.json        # Customer details (personas, segments, enterprise fields)
 cat docs/tables/subscriptions.json    # Active/historical subscriptions (plans, prices, status)
 cat docs/tables/enterprise_turns.json # Enterprise negotiation threads (messages, offers)
-cat docs/tables/vc_turns.json         # VC negotiation threads
 cat docs/tables/ledger.json           # Financial ledger (all money in/out)
 cat docs/tables/social_media_posts.json
 ```
@@ -187,7 +177,6 @@ Queries are read-only — **use the `novamind_api` functions for all actions** (
 - Key metrics and trends you're tracking
 - Lessons learned (errors to avoid, patterns that work)
 - Ongoing plans and priorities for upcoming days
-- Important customer/VC negotiation states
 - What worked and what didn't
 
 **Keep MEMORY.md concise and actionable.** Don't dump raw data — summarize insights. Update it every day before calling `next-day`. Delete outdated information.
