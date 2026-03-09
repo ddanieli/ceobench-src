@@ -961,8 +961,6 @@ class BaselineRunner:
                 outage=day_result.outage,
                 group_reputations=get_all_group_reputations(self.conn),
                 group_awareness=get_all_group_awareness(self.conn),
-                total_cash=day_result.total_cash_paid,
-                final_cash=day_result.cash,
             )
 
             if verbose:

@@ -792,8 +792,6 @@ class BashAgentRunner:
                     outage=last_result.outage,
                     group_reputations=get_all_group_reputations(self.conn),
                     group_awareness=get_all_group_awareness(self.conn),
-                    total_cash=last_result.total_cash_paid,
-                    final_cash=last_result.cash,
                 )
 
             # Per-day timing summary
@@ -808,8 +806,7 @@ class BashAgentRunner:
                              other_s=round(max(_day_other, 0), 1),
                              turns=turns_today,
                              subs=_subs,
-                             cash=last_result.cash if last_result else 0,
-                             cash_balance=last_result.cash if last_result else 0)
+                             cash=last_result.cash if last_result else 0)
 
             # Print per-day timing summary to stderr (visible in logs)
             import sys as _sys
