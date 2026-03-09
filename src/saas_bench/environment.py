@@ -17,6 +17,7 @@ from pathlib import Path
 from numpy.random import Generator, default_rng
 
 from .config import BenchmarkConfig, MODEL_TIERS, CAPACITY_TIERS
+from .database import init_database, get_config, get_cash, get_mrr, get_active_subscriber_count
 from .simulation import Simulator, DayResult
 from .tools import AgentTools, ToolResult
 
