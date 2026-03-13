@@ -1,0 +1,277 @@
+"""BossBench Monitor — Modal-deployed dashboard.
+
+Reads run data from a Modal volume periodically updated by push_data.py.
+
+Deploy: cd projects/saas-bench && modal deploy monitor/modal_app.py
+"""
+
+import json
+import modal
+
+app = modal.App("ceobench-dashboard")
+volume = modal.Volume.from_name("bossbench-monitor-data", create_if_missing=True)
+image = modal.Image.debian_slim(python_version="3.11").pip_install("fastapi[standard]")
+
+
+@app.function(
+    image=image,
+    volumes={"/data": volume},
+    cpu=0.25,
+    memory=256,
+    scaledown_window=900,
+)
+@modal.asgi_app()
+def dashboard():
+    from fastapi import FastAPI
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from pathlib import Path
+
+    web = FastAPI()
+    DATA_FILE = Path("/data/data.json")
+
+    @web.get("/api/data")
+    def get_data():
+        try:
+            volume.reload()
+        except Exception:
+            pass
+        if DATA_FILE.exists():
+            with open(DATA_FILE) as f:
+                return json.load(f)
+        return {"runs": [], "timestamp": None}
+
+    @web.get("/", response_class=HTMLResponse)
+    def index():
+        return DASHBOARD_HTML
+
+    return web
+
+
+DASHBOARD_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BossBench Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d29922;--purple:#bc8cff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text)}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100}
+.header h1{font-size:18px;font-weight:600;white-space:nowrap}
+.header select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:14px;min-width:260px}
+.header .info{margin-left:auto;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:8px}
+.header .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+.container{max-width:1400px;margin:0 auto;padding:16px 24px}
+.run-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .2s}
+.run-card:hover,.run-card.active{border-color:var(--accent)}
+.run-card .label{font-weight:600;font-size:14px;margin-bottom:4px}
+.run-card .meta{font-size:12px;color:var(--text2);margin-bottom:8px}
+.run-card .stats{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:13px}
+.run-card .stats .val{font-weight:600}
+.run-card .stats .cash{color:var(--green)}
+.run-card .stats .divs{color:var(--yellow)}
+.run-card .progress-bar{margin-top:8px;background:var(--bg);border-radius:4px;height:6px;overflow:hidden}
+.run-card .progress-fill{background:var(--accent);height:100%;border-radius:4px;transition:width .3s}
+.run-card .progress-text{font-size:11px;color:var(--text2);margin-top:2px}
+.run-card .recent-actions{margin-top:8px;border-top:1px solid var(--border);padding-top:6px}
+.run-card .ra-item{display:flex;align-items:baseline;gap:6px;font-size:11px;padding:2px 0;line-height:1.4}
+.run-card .ra-tool{color:var(--purple);font-weight:600;white-space:nowrap}
+.run-card .ra-args{color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:10px}
+.run-card .ra-time{color:var(--text2);white-space:nowrap;font-size:10px;margin-left:auto}
+.detail{display:none}.detail.visible{display:block}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.chart-box h3{font-size:13px;color:var(--text2);margin-bottom:8px}
+.chart-box canvas{max-height:220px}
+.tabs{display:flex;gap:0}
+.tab{padding:8px 20px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--border);border-bottom:none;background:var(--bg);color:var(--text2);border-radius:6px 6px 0 0}
+.tab.active{background:var(--surface);color:var(--text)}
+.tab-content{background:var(--surface);border:1px solid var(--border);border-radius:0 8px 8px 8px;display:none}
+.tab-content.active{display:block}
+.action-list{max-height:600px;overflow-y:auto}
+.action-item{padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px}
+.action-item:last-child{border-bottom:none}
+.action-item .action-header{display:flex;gap:12px;align-items:baseline;margin-bottom:4px}
+.day-badge{background:var(--accent);color:#000;font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px}
+.turn-badge{background:var(--border);font-size:11px;padding:1px 6px;border-radius:3px}
+.tool-name{font-weight:600;color:var(--purple)}
+.timestamp{color:var(--text2);font-size:11px;margin-left:auto}
+.args{color:var(--text2);font-size:12px;margin:2px 0;font-family:'SF Mono',Monaco,Consolas,monospace}
+.result-toggle{color:var(--accent);cursor:pointer;font-size:12px;user-select:none}
+.result-content{display:none;margin-top:6px;background:var(--bg);border-radius:6px;padding:12px;font-size:12px;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word;max-height:500px;overflow-y:auto;line-height:1.5}
+.result-content.visible{display:block}
+.response-card{padding:14px 16px;border-bottom:1px solid var(--border)}
+.response-card:last-child{border-bottom:none}
+.response-card .resp-header{display:flex;gap:12px;align-items:baseline;margin-bottom:6px}
+.response-card .content-block{background:var(--bg);border-radius:6px;padding:12px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:600px;overflow-y:auto}
+.response-card .tc-item{background:var(--bg);border-radius:6px;padding:8px 12px;margin-top:4px;font-size:12px}
+.response-card .tc-item .tc-name{color:var(--purple);font-weight:600}
+.response-card .tc-item pre{margin-top:4px;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;color:var(--text2)}
+.loading{text-align:center;padding:40px;color:var(--text2)}
+.compare-table{width:100%;border-collapse:collapse;font-size:13px}
+.compare-table th,.compare-table td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+.compare-table th{color:var(--text2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.compare-table td.num{text-align:right;font-family:'SF Mono',Monaco,Consolas,monospace}
+.compare-table tr:hover{background:rgba(88,166,255,.05)}
+@media(max-width:800px){.charts{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BossBench Monitor</h1>
+  <select id="runSelect" onchange="selectRun(this.value)"><option value="">— All Runs Overview —</option></select>
+  <div class="info"><span class="dot"></span> Auto-refresh 15s <span id="lastUpdate"></span> <span id="dataAge" style="color:var(--yellow)"></span></div>
+</div>
+<div class="container">
+  <div id="overviewSection">
+    <div style="margin-bottom:16px">
+      <h2 style="font-size:16px;color:var(--text2);margin-bottom:8px">Compare All Runs</h2>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:auto">
+        <table class="compare-table"><thead><tr>
+          <th>Run</th><th>Model</th><th>Day</th><th>Progress</th>
+          <th style="text-align:right">Cash</th><th style="text-align:right">Subscribers</th>
+          <th style="text-align:right">MRR</th><th style="text-align:right">F. Dividends</th>
+          <th style="text-align:right">Turns</th><th>Last Action</th>
+        </tr></thead><tbody id="compareBody"></tbody></table>
+      </div>
+    </div>
+    <div class="overview" id="runCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px"></div>
+  </div>
+  <div id="detailSection" class="detail">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <button onclick="selectRun('')" style="background:var(--surface);border:1px solid var(--border);color:var(--accent);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:13px">&#8592; Back</button>
+      <h2 id="detailTitle" style="margin:0"></h2>
+    </div>
+    <div class="overview" id="detailStats" style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px"></div>
+    <div class="charts">
+      <div class="chart-box"><h3>Cash Balance</h3><canvas id="cashChart"></canvas></div>
+      <div class="chart-box"><h3>Subscribers</h3><canvas id="subsChart"></canvas></div>
+    </div>
+    <div class="charts">
+      <div class="chart-box"><h3>Founder Dividends (Cumulative)</h3><canvas id="divChart"></canvas></div>
+      <div class="chart-box" id="timingChartBox"><h3>Day Time Breakdown (s)</h3><canvas id="timingChart"></canvas></div>
+    </div>
+    <div class="charts">
+      <div class="chart-box"><h3>Time Breakdown</h3><div id="timingBars" style="padding:8px 0"></div></div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('actions')">Tool Calls</div>
+      <div class="tab" onclick="switchTab('responses')">LLM Responses</div>
+      <div class="tab" onclick="switchTab('timing')">Timing</div>
+    </div>
+    <div id="actionsTab" class="tab-content active"><div class="action-list" id="actionList"><div class="loading">Loading...</div></div></div>
+    <div id="responsesTab" class="tab-content"><div class="action-list" id="responseList"><div class="loading">Loading...</div></div></div>
+    <div id="timingTab" class="tab-content"><div class="action-list" id="timingList"><div class="loading">Loading...</div></div></div>
+  </div>
+</div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
+let allData={runs:[]},currentRun=null,charts={};
+
+function fmt(n,p){p=p||'';if(n==null)return'\u2014';if(Math.abs(n)>=1e6)return p+(n/1e6).toFixed(2)+'M';if(Math.abs(n)>=1e3)return p+(n/1e3).toFixed(1)+'K';return p+n.toLocaleString()}
+function fmtCash(n){return n==null?'\u2014':'$'+fmt(n)}
+function pct(c,t){return t?Math.round(c/t*100):0}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function timeAgo(ts){if(!ts)return'';var s=Math.floor((Date.now()-new Date(ts))/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
+function fmtResult(raw){if(!raw)return'(empty)';var s=String(raw);try{return esc(JSON.stringify(JSON.parse(s),null,2))}catch(e){}return esc(s)}
+function fmtArgs(args){if(!args)return'';if(typeof args==='string')return esc(args);if(args.command)return esc(args.command);if(args.path)return esc(args.path);if(args.code)return esc(args.code.substring(0,200));return esc(JSON.stringify(args))}
+var actEmoji={'bash':'\ud83d\udd27','read_file':'\ud83d\udcc2','write_file':'\u270d\ufe0f','edit_file':'\u270f\ufe0f','search_files':'\ud83d\udd0d','glob_files':'\ud83d\udd0d','_dashboard':'\ud83d\udcca','_reasoning':'\ud83d\udcad'};
+function briefArgs(args){if(!args)return'';if(typeof args==='string')return args.substring(0,60);if(args.command){var c=args.command;return c.length>60?c.substring(0,57)+'...':c}if(args.path)return args.path;if(args.code)return args.code.substring(0,60);try{var s=JSON.stringify(args);return s.length>60?s.substring(0,57)+'...':s}catch(e){return''}}
+
+async function fetchData(){
+  try{var r=await fetch('/api/data');var d=await r.json();if(d.runs)allData=d;renderOverview();if(currentRun)renderDetail();$('#lastUpdate').textContent=new Date().toLocaleTimeString();if(d.timestamp){var age=Math.floor((Date.now()-new Date(d.timestamp))/1000);$('#dataAge').textContent=age>60?'(data '+Math.floor(age/60)+'m old)':''}}catch(e){console.error(e)}}
+
+function renderOverview(){
+  var runs=allData.runs||[];var tbody='';
+  for(var i=0;i<runs.length;i++){var r=runs[i];var p=pct(r.current_day||0,r.total_days||1095);
+    var hb=r.last_heartbeat;var hbAge=hb?Math.floor((Date.now()-new Date(hb))/1000):null;var hbColor=hbAge!==null?(hbAge<60?'var(--green)':hbAge<300?'var(--yellow)':'var(--red)'):'var(--text2)';var hbDot='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+hbColor+';margin-right:4px"></span>';
+    var lastAct=(r.recent_activity||r.recent_actions||[])[0];var lastActHtml=hbDot+(hb?'<span style="font-size:11px;color:'+hbColor+'">'+timeAgo(hb)+'</span> ':'')+(lastAct?(lastAct.type==='llm'?'<span style="color:var(--accent);font-weight:600">\ud83e\udde0 LLM '+(lastAct.elapsed_s||'?')+'s</span>':'<span style="color:var(--purple);font-weight:600">'+(actEmoji[lastAct.tool]||'\u2699\ufe0f')+' '+esc(lastAct.tool)+'</span>'):'');
+    tbody+='<tr style="cursor:pointer" onclick="selectRun(\''+r.run_id+'\')"><td><strong>'+esc(r.label)+'</strong><br><span style="color:var(--text2);font-size:11px">'+r.run_id+'</span></td><td style="font-size:12px">'+esc(r.model||'')+'</td><td class="num">'+(r.current_day||'\u2014')+'</td><td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;background:var(--bg);border-radius:3px;height:4px"><div style="width:'+p+'%;background:var(--accent);height:100%;border-radius:3px"></div></div><span style="font-size:11px;color:var(--text2);min-width:35px">'+p+'%</span></div></td><td class="num" style="color:'+((r.cash||0)<0?'var(--red)':'var(--green)')+'">'+fmtCash(r.cash)+'</td><td class="num">'+fmt(r.subscribers)+'</td><td class="num">'+fmtCash(r.mrr)+'</td><td class="num" style="color:var(--yellow)">'+fmtCash(r.founder_dividends)+'</td><td class="num">'+fmt(r.agent_turns)+'</td><td style="font-size:12px">'+lastActHtml+'</td></tr>'}
+  $('#compareBody').innerHTML=tbody;
+  var cards='';
+  for(var i=0;i<runs.length;i++){var r=runs[i];var p=pct(r.current_day||0,r.total_days||1095);
+    var raHtml='';var ra=(r.recent_activity||r.recent_actions||[]).slice(0,3);if(ra.length){raHtml='<div class="recent-actions">';for(var j=0;j<ra.length;j++){var a=ra[j];if(a.type==='llm'){raHtml+='<div class="ra-item"><span class="ra-tool" style="color:var(--accent)">\ud83e\udde0 LLM '+(a.elapsed_s||'?')+'s</span><span class="ra-args">'+esc(a.preview||'')+'</span><span class="ra-time">'+timeAgo(a.timestamp)+'</span></div>'}else{var em=actEmoji[a.tool]||'\u2699\ufe0f';raHtml+='<div class="ra-item"><span class="ra-tool">'+em+' '+esc(a.tool)+'</span><span class="ra-args">'+esc(a.preview||briefArgs(a.arguments)||'')+'</span><span class="ra-time">'+timeAgo(a.timestamp)+'</span></div>'}}raHtml+='</div>'}
+    var hb2=r.last_heartbeat;var hbAge2=hb2?Math.floor((Date.now()-new Date(hb2))/1000):null;var hbCol2=hbAge2!==null?(hbAge2<60?'var(--green)':hbAge2<300?'var(--yellow)':'var(--red)'):'var(--text2)';var hbLabel=hb2?'<span style="font-size:10px;color:'+hbCol2+'"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+hbCol2+';margin-right:3px"></span>Active '+timeAgo(hb2)+'</span>':'';
+    cards+='<div class="run-card'+(currentRun===r.run_id?' active':'')+'" onclick="selectRun(\''+r.run_id+'\')"><div class="label" style="display:flex;align-items:center;gap:8px">'+esc(r.label)+' '+hbLabel+'</div><div class="meta">'+esc(r.model||'')+' \u00b7 seed '+r.seed+' \u00b7 '+r.run_id+'</div><div class="stats"><div>Cash: <span class="val cash">'+fmtCash(r.cash)+'</span></div><div>Subs: <span class="val">'+fmt(r.subscribers)+'</span></div><div>MRR: <span class="val">'+fmtCash(r.mrr)+'</span></div><div>Divs: <span class="val divs">'+fmtCash(r.founder_dividends)+'</span></div></div><div class="progress-bar"><div class="progress-fill" style="width:'+p+'%"></div></div><div class="progress-text">Day '+(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%) \u00b7 '+fmt(r.agent_turns||r.tool_calls_count)+' turns</div>'+raHtml+'</div>'}
+  $('#runCards').innerHTML=cards;
+  var sel=$('#runSelect');var cv=sel.value;sel.innerHTML='<option value="">— All Runs Overview —</option>';
+  for(var i=0;i<runs.length;i++){var r=runs[i];sel.innerHTML+='<option value="'+r.run_id+'"'+(r.run_id===cv?' selected':'')+'>'+esc(r.label)+' ('+r.run_id+')</option>'}
+}
+
+function selectRun(id){currentRun=id||null;$('#runSelect').value=id;if(!id){$('#overviewSection').style.display='';$('#detailSection').classList.remove('visible');return}$('#overviewSection').style.display='none';$('#detailSection').classList.add('visible');renderDetail()}
+
+function renderDetail(){
+  if(!currentRun)return;var r=(allData.runs||[]).find(function(x){return x.run_id===currentRun});if(!r)return;
+  var p=pct(r.current_day||0,r.total_days||1095);
+  $('#detailTitle').textContent=r.label+' \u2014 '+r.model+' ('+r.run_id+')';
+  var stats=[{l:'Day',v:(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%)'},{l:'Cash',v:fmtCash(r.cash),c:(r.cash||0)<0?'color:var(--red)':'color:var(--green)'},{l:'Subscribers',v:fmt(r.subscribers)},{l:'MRR',v:fmtCash(r.mrr)},{l:'F. Dividends',v:fmtCash(r.founder_dividends),c:'color:var(--yellow)'},{l:'Agent Turns',v:fmt(r.agent_turns||r.tool_calls_count)},{l:'Avg Day Time',v:r.timing_avg_day?r.timing_avg_day+'s':'\u2014',c:'color:var(--accent)'}];
+  $('#detailStats').innerHTML=stats.map(function(s){return'<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">'+s.l+'</div><div style="font-size:18px;font-weight:700;margin-top:2px;'+(s.c||'')+'">'+s.v+'</div></div>'}).join('');
+  renderCharts(r);renderActions(r);renderResponses(r);renderTiming(r);
+}
+
+function renderCharts(r){
+  if(charts.cash)charts.cash.destroy();
+  charts.cash=new Chart($('#cashChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:(r.cash_series||[]).map(function(d){return d.day}),datasets:[{label:'Cash',data:(r.cash_series||[]).map(function(d){return d.cash}),borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,0.1)',fill:true}]}});
+  if(charts.subs)charts.subs.destroy();
+  charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:(r.sub_series||[]).map(function(d){return d.day}),datasets:[{label:'Subscribers',data:(r.sub_series||[]).map(function(d){return d.subscribers}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true}]}});
+  if(charts.div)charts.div.destroy();
+  charts.div=new Chart($('#divChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:(r.dividend_series||[]).map(function(d){return d.day}),datasets:[{label:'Founder Dividends',data:(r.dividend_series||[]).map(function(d){return d.dividends}),borderColor:'#d29922',backgroundColor:'rgba(210,153,34,0.1)',fill:true}]}});
+}
+
+function renderActions(r){
+  var actions=r.recent_actions||[];if(!actions.length){$('#actionList').innerHTML='<div class="loading">No actions yet</div>';return}
+  var emojis={'bash':'\ud83d\udd27','read_file':'\ud83d\udcc2','write_file':'\u270d\ufe0f','edit_file':'\u270f\ufe0f','search_files':'\ud83d\udd0d','glob_files':'\ud83d\udd0d','_dashboard':'\ud83d\udcca','_reasoning':'\ud83d\udcad'};
+  var h='';for(var i=0;i<actions.length;i++){var a=actions[i];var em=emojis[a.tool]||'\u2699\ufe0f';
+    h+='<div class="action-item"><div class="action-header"><span class="day-badge">Day '+a.day+'</span><span class="turn-badge">Turn '+a.turn+'</span><span class="tool-name">'+em+' '+esc(a.tool)+'</span><span class="timestamp">'+timeAgo(a.timestamp)+'</span></div>'+(fmtArgs(a.arguments)?'<div class="args">'+fmtArgs(a.arguments)+'</div>':'')+'<span class="result-toggle" onclick="this.nextElementSibling.classList.toggle(\'visible\');this.textContent=this.textContent===\'\u25b6 Show result\'?\'\u25bc Hide result\':\'\u25b6 Show result\'">\u25b6 Show result</span><div class="result-content">'+fmtResult(a.result)+'</div></div>'}
+  $('#actionList').innerHTML=h;
+}
+
+function renderResponses(r){
+  var resps=r.recent_responses||[];if(!resps.length){$('#responseList').innerHTML='<div class="loading">No responses yet</div>';return}
+  var h='';for(var i=0;i<resps.length;i++){var rr=resps[i];var raw=rr.raw_response||{};var u=raw.usage||{};
+    // Handle both OpenAI (prompt_tokens/completion_tokens) and Anthropic (input_tokens/output_tokens)
+    var inTok=u.prompt_tokens||u.input_tokens||0;var outTok=u.completion_tokens||u.output_tokens||0;
+    // Handle both OpenAI (choices[0].message) and Anthropic (content array) formats
+    var ct='',tcs=[];
+    if(raw.choices&&raw.choices.length){var msg=raw.choices[0].message||{};ct=msg.content||'';tcs=msg.tool_calls||[]}
+    else if(raw.content&&Array.isArray(raw.content)){var texts=[],tools=[];raw.content.forEach(function(b){if(b.type==='text')texts.push(b.text);else if(b.type==='tool_use')tools.push({function:{name:b.name,arguments:JSON.stringify(b.input||{})}})});ct=texts.join('\n');tcs=tools}
+    h+='<div class="response-card"><div class="resp-header"><span class="day-badge">Day '+rr.day+'</span><span class="turn-badge">Turn '+rr.turn+'</span><span style="font-size:12px;color:var(--text2)">'+(inTok?fmt(inTok)+' in / '+fmt(outTok)+' out':'')+'</span><span class="timestamp">'+timeAgo(rr.timestamp)+'</span></div>'+(ct?'<div class="content-block">'+fmtResult(ct)+'</div>':'')+(tcs.length?'<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2)">Tool calls ('+tcs.length+'):</div>'+tcs.map(function(tc){var a='';try{a=JSON.stringify(JSON.parse(tc.function.arguments||'{}'),null,2)}catch(e){a=tc.function.arguments||''}return'<div class="tc-item"><span class="tc-name">'+esc(tc.function.name||'?')+'</span><pre>'+esc(a)+'</pre></div>'}).join('')+'</div>':'')+'</div>'}
+  $('#responseList').innerHTML=h;
+}
+
+function switchTab(t){$$('.tab').forEach(function(x){x.classList.remove('active')});$$('.tab-content').forEach(function(x){x.classList.remove('active')});var tabs=$$('.tab');if(t==='actions'){tabs[0].classList.add('active');$('#actionsTab').classList.add('active')}else if(t==='responses'){tabs[1].classList.add('active');$('#responsesTab').classList.add('active')}else if(t==='timing'){tabs[2].classList.add('active');$('#timingTab').classList.add('active')}}
+
+function renderTiming(r){
+  // Timing chart (stacked bar per day: llm, step_day, tool)
+  var ds=r.timing_day_summaries||[];
+  if(charts.timing)charts.timing.destroy();
+  if(ds.length>0){
+    var step=Math.max(1,Math.floor(ds.length/100));
+    var sampled=ds.filter(function(_,i){return i%step===0||i===ds.length-1});
+    charts.timing=new Chart($('#timingChart').getContext('2d'),{type:'bar',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:9}}},y:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{bar:{borderRadius:1}}},data:{labels:sampled.map(function(d){return d.day}),datasets:[{label:'LLM',data:sampled.map(function(d){return d.llm_total_s||0}),backgroundColor:'rgba(88,166,255,0.7)'},{label:'step_day',data:sampled.map(function(d){return d.step_day_s||0}),backgroundColor:'rgba(240,136,62,0.7)'},{label:'tools',data:sampled.map(function(d){return d.tool_total_s||0}),backgroundColor:'rgba(188,140,255,0.7)'}]}});
+  }
+  // Cumulative timing bars
+  var tl=r.timing_total_llm||0,ts=r.timing_total_step||0,tt=r.timing_total_tool||0;
+  var tot=tl+ts+tt;
+  var barsEl=$('#timingBars');
+  if(tot>0){
+    var pl=tl/tot*100,ps=ts/tot*100,pt=tt/tot*100;
+    function fmtDur(s){if(s<60)return s.toFixed(0)+'s';if(s<3600)return(s/60).toFixed(1)+'m';return(s/3600).toFixed(1)+'h'}
+    barsEl.innerHTML='<div style="margin-bottom:12px"><div style="display:flex;height:24px;border-radius:4px;overflow:hidden"><div style="width:'+pl+'%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000">LLM '+pl.toFixed(0)+'%</div><div style="width:'+ps+'%;background:#f0883e;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000">step '+ps.toFixed(0)+'%</div><div style="width:'+pt+'%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000">tools '+pt.toFixed(0)+'%</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:13px"><div><span style="color:var(--text2)">LLM:</span> <strong style="color:var(--accent)">'+fmtDur(tl)+'</strong></div><div><span style="color:var(--text2)">step_day:</span> <strong style="color:#f0883e">'+fmtDur(ts)+'</strong></div><div><span style="color:var(--text2)">tools:</span> <strong style="color:var(--purple)">'+fmtDur(tt)+'</strong></div><div><span style="color:var(--text2)">avg/day:</span> <strong>'+(r.timing_avg_day||'\u2014')+'s</strong></div></div>';
+  }else{barsEl.innerHTML='<div style="color:var(--text2);font-size:13px">No timing data yet</div>'}
+  // Timing tab - recent turns
+  var turns=r.timing_recent_turns||[];
+  if(!turns.length){$('#timingList').innerHTML='<div class="loading">No timing data yet</div>';return}
+  var h='';for(var i=0;i<turns.length;i++){var t=turns[i];
+    if(t.event==='llm_call'){h+='<div class="action-item"><div class="action-header"><span class="day-badge">Day '+t.day+'</span><span class="turn-badge">Turn '+t.turn+'</span><span style="color:var(--accent);font-weight:600">LLM '+t.elapsed_s+'s</span><span style="color:var(--purple);margin-left:8px">\u2192 '+esc(t.tool||'')+'</span><span style="color:var(--text2);font-size:11px;margin-left:auto">'+esc((t.tool_preview||'').substring(0,80))+'</span></div></div>'}
+    else if(t.event==='tool_exec'){h+='<div class="action-item"><div class="action-header"><span class="day-badge">Day '+t.day+'</span><span class="turn-badge">Turn '+t.turn+'</span><span style="color:var(--purple);font-weight:600">Tool '+t.elapsed_s+'s</span><span style="color:var(--yellow);margin-left:8px">'+esc(t.tool||'')+'</span></div></div>'}
+  }
+  $('#timingList').innerHTML=h;
+}
+
+fetchData();setInterval(fetchData,15000);
+</script>
+</body>
+</html>"""

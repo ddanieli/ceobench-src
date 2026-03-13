@@ -679,11 +679,11 @@ TOOL_DOCS = {
                 "rows('SELECT message_id, turn_number, day, sender, message_text, offer_json, seat_count, closed, close_reason FROM enterprise_turns WHERE thread_id=? ORDER BY turn_number', (thread_id,))"
             ],
             "social_posts": [
-                "# Recent social media posts (NOTE: sentiment column is hidden from agent)",
-                "rows('SELECT day, content, likes, shares, virality_score FROM social_media_posts WHERE day > (SELECT MAX(day)-7 FROM social_media_posts) ORDER BY day DESC LIMIT 10')",
+                "# Recent social media posts (sentiment, likes, shares, virality_score, customer_id are hidden)",
+                "rows('SELECT day, content FROM social_media_posts WHERE day > (SELECT MAX(day)-7 FROM social_media_posts) ORDER BY day DESC LIMIT 10')",
                 "",
-                "# High-engagement posts (you must infer sentiment from content)",
-                "rows('SELECT day, content, likes, shares FROM social_media_posts WHERE virality_score > 0.5 ORDER BY day DESC LIMIT 5')"
+                "# Count posts per day (you must infer sentiment from content)",
+                "rows('SELECT day, COUNT(*) as num_posts FROM social_media_posts GROUP BY day ORDER BY day DESC LIMIT 7')"
             ],
             "pandas_examples": [
                 "# Load data into DataFrame",
@@ -897,16 +897,16 @@ TOOL_DOCS = {
         },
         "returns": {
             "success": {
-                "message": "Found 23 posts in last 7 days.\nDay 45: \"The service was down for 2 hours yesterday...\" (15 likes, 3 shares)\nDay 44: \"Love how fast the API responds now!\" (8 likes, 1 share)",
+                "message": "Found 23 posts in last 7 days.\nDay 45: \"The service was down for 2 hours yesterday...\"\nDay 44: \"Love how fast the API responds now!\"",
                 "data": {
-                    "posts": [{"day": 45, "content": "The service was down...", "likes": 15, "shares": 3, "virality_score": 0.3}],
+                    "posts": [{"day": 45, "content": "The service was down..."}],
                     "total": 23
                 }
             },
             "failure": "Invalid parameters"
         },
         "output_schema": {
-            "posts": "List[Dict] — each post has: day (int), content (str), likes (int), shares (int), virality_score (float), customer_id (int), group_id (str), customer_type (str), custom_name (str), persona_name (str)",
+            "posts": "List[Dict] — each post has: day (int), content (str), group_id (str), customer_type (str), custom_name (str), persona_name (str)",
             "total": "int — total number of posts found",
             "_access": "for post in result['posts']: print(post['day'], post['content'])",
             "_warning": "result is a dict with 'posts' key — do NOT iterate result directly, iterate result['posts']"
@@ -918,9 +918,9 @@ TOOL_DOCS = {
         },
         "sample_io": {
             "success": [
-                {"label": "Last 7 days", "input": {"days": 7}, "output": "Found 23 posts in last 7 days.\nDay 45: \"Absolutely loving the new features! The AI quality has improved dramatically. 10/10 would recommend.\" (15 likes, 3 shares, virality: 0.31)\nDay 44: \"Service was down for 2 hours yesterday. Frustrating when you're on a deadline.\" (8 likes, 1 share, virality: 0.12)\nDay 43: \"Good tool but getting pricey. Considering alternatives.\" (4 likes, 0 shares, virality: 0.05)"},
-                {"label": "Last 1 day with limit", "input": {"days": 1, "limit": 5}, "output": "Found 3 posts in last 1 days.\nDay 45: \"Great uptime today!\" (2 likes, 0 shares, virality: 0.02)\nDay 45: \"Just started using this, so far so good\" (1 likes, 0 shares, virality: 0.01)\nDay 45: \"Pricing seems steep for a small team\" (5 likes, 1 share, virality: 0.08)"},
-                {"label": "Last 30 days", "input": {"days": 30, "limit": 50}, "output": "Found 50 posts in last 30 days (showing first 50).\nDay 45: \"Absolutely loving...\" (15 likes, 3 shares, virality: 0.31)\n...48 more posts..."}
+                {"label": "Last 7 days", "input": {"days": 7}, "output": "Found 23 posts in last 7 days.\nDay 45: \"Absolutely loving the new features! The AI quality has improved dramatically. 10/10 would recommend.\"\nDay 44: \"Service was down for 2 hours yesterday. Frustrating when you're on a deadline.\"\nDay 43: \"Good tool but getting pricey. Considering alternatives.\""},
+                {"label": "Last 1 day with limit", "input": {"days": 1, "limit": 5}, "output": "Found 3 posts in last 1 days.\nDay 45: \"Great uptime today!\"\nDay 45: \"Just started using this, so far so good\"\nDay 45: \"Pricing seems steep for a small team\""},
+                {"label": "Last 30 days", "input": {"days": 30, "limit": 50}, "output": "Found 50 posts in last 30 days (showing first 50).\nDay 45: \"Absolutely loving...\"\n...48 more posts..."}
             ],
             "failure": [
                 {"label": "Negative days", "input": {"days": -1}, "output": "Days must be a positive integer"}
@@ -1087,14 +1087,14 @@ TOOL_DOCS = {
         "inputSchema": {"type": "object", "properties": {}},
         "parameters": {},
         "returns": {
-            "success": "=== Market Research Success ===\nCost: $25,000\nDiscovered: Niche Creators (D_S01) \u2014 Individual segment\nInfo Level: 1 (noisy estimates \u00b150%)\nRemaining undiscovered segments: 19\n\n--- Initial Estimates (\u00b150% accuracy) ---\n  Willingness to pay:   ~$85/mo\n  Usage volume:         ~35 units/day\n  Quality expectations: ~0.58\n  Market cap:           ~185,000 customers\n  Market cap growth:    ~9.2%/year\n\nUse get_group_insights('D_S01') for full parameter estimates.\nUse research_group('D_S01') to improve accuracy.",
-            "failure": "Market research complete ($25,000). No new segments discovered this time. 19 undiscovered segments remain. Try again for another chance.",
+            "success": "=== Market Research Success ===\nCost: $25,000\nDiscovered: Niche Creators (D_S01) \u2014 Individual segment\nInfo Level: 1 (noisy estimates \u00b150%)\n\n--- Initial Estimates (\u00b150% accuracy) ---\n  Willingness to pay:   ~$85/mo\n  Usage volume:         ~35 units/day\n  Quality expectations: ~0.58\n  Market cap:           ~185,000 customers\n  Market cap growth:    ~9.2%/year\n\nUse get_group_insights('D_S01') for full parameter estimates.\nUse research_group('D_S01') to improve accuracy.",
+            "failure": "Market research complete ($25,000). No new segments discovered this time. Try again for another chance.",
             "no_funds": "Insufficient funds. Market research costs $25,000. Available: $12,000",
             "data_on_success": {
                 "discovered_group_id": "D_S01", "group_name": "Niche Creators", "segment": "Individual",
-                "info_level": 1, "remaining_undiscovered": 19, "cost": 25000
+                "info_level": 1, "cost": 25000
             },
-            "data_on_failure": {"remaining_undiscovered": 19, "cost": 25000}
+            "data_on_failure": {"cost": 25000}
         },
         "what_happens": [
             "1. $25,000 deducted from cash",
@@ -1104,7 +1104,6 @@ TOOL_DOCS = {
         ],
         "output_schema": {
             "discovered_group_id": "str|None — group ID if discovered (e.g., 'D_S01'), absent if no discovery",
-            "remaining_undiscovered": "int — number of undiscovered segments remaining",
             "_access": "if 'discovered_group_id' in result: print('Found:', result['discovered_group_id'])"
         },
         "impact": "Costs $25,000 per attempt. On success, unlocks a new customer segment with initial parameter estimates.",
@@ -1410,7 +1409,7 @@ TOOL_DOCS = {
         },
         "sample_io": {
             "success": [
-                {"label": "List all tables", "input": {}, "output": "=== Available Database Tables (14) ===\n\n  customers — All customers (small and enterprise)\n  subscriptions — Subscription records\n  daily_usage — Daily usage data per subscription\n  ledger — Financial ledger — all income and expenses\n  service_day — Daily aggregate metrics and system state\n  config_history — History of all configuration changes\n  social_media_posts — Customer social media posts\n  enterprise_turns — Enterprise negotiation message threads\n  notifications — Inbox notifications (enterprise leads, events)\n  research_projects — R&D research project status and results\n  competitor_events — Competitor actions and market events\n  macroeconomic_conditions — Macroeconomic conditions (ISM PMI business cycle index)\n  ad_channel_leads — Per-channel advertising lead generation stats\n  group_info_levels — Information levels for customer group research\n  issues — Customer support issues\n\nUse describe_tables(table_names=[...]) for detailed column schemas."}
+                {"label": "List all tables", "input": {}, "output": "=== Available Database Tables (13) ===\n\n  customers — All customers (small and enterprise)\n  subscriptions — Subscription records\n  daily_usage — Daily usage data per subscription\n  ledger — Financial ledger — all income and expenses\n  service_day — Daily aggregate metrics and system state\n  config_history — History of all configuration changes\n  social_media_posts — Customer social media posts\n  enterprise_turns — Enterprise negotiation message threads\n  notifications — Inbox notifications (enterprise leads, events)\n  research_projects — R&D research project status and results\n  macroeconomic_conditions — Macroeconomic conditions (ISM PMI business cycle index)\n  ad_channel_leads — Per-channel advertising lead generation stats\n  group_info_levels — Information levels for customer group research\n  issues — Customer support issues\n\nUse describe_tables(table_names=[...]) for detailed column schemas."}
             ]
         }
     },
@@ -3013,11 +3012,7 @@ class AgentTools:
         social_media_posts - Customer posts on social media about the service
           • post_id: Unique identifier
           • day: Simulation day posted
-          • customer_id: Foreign key to customers table
           • content: Text content of the post
-          • likes: Number of likes received
-          • shares: Number of shares/retweets
-          • virality_score: Computed virality metric (higher = more viral)
 
         enterprise_turns - Enterprise customer negotiation turns (each row = one turn in a conversation)
           • message_id: Unique identifier
@@ -3193,6 +3188,7 @@ _HIDDEN_TABLES = {{
     'world_context',      # Internal world context
     'pending_group_research', # Internal async research tracking
     'group_parameters',       # V2.1: Internal preference drift tracking (agent must infer from behavior)
+    'competitor_events',      # V4: Hidden — agent should not see internal competitor boost mechanics
 }}
 
 # Hidden columns that agent should not see (latent customer attributes, internal simulation params)
@@ -3230,6 +3226,21 @@ _HIDDEN_COLUMNS = {{
     'persona_communication',
     # Internal thread status tracking (enterprise_turns) - hidden dead-thread marker
     '_internal_status',
+    # V4: Latent customer quality parameters (customers table)
+    'q_max', 'q_min', 'contract_lockin_penalty',
+    # V4: Internal ads sensitivity parameters (customers table)
+    'ads_quality_sensitivity', 'ads_return_sensitivity',
+    # V4: Subscription internals
+    'effective_c_max',        # Willingness-to-pay at subscription time
+    'churn_reason',           # Internal churn categorization
+    # V4: Social media internals (agent sees content but not engagement mechanics)
+    'likes', 'shares', 'virality_score',
+    # V4: R&D internals
+    'current_decay_reduction', 'decay_reduction_expiry_day',
+    # V4: Ads revenue internals
+    'sensitivity',            # Per-customer ads return sensitivity
+    # V4: Segment discovery internals
+    'remaining_undiscovered',
 }}
 
 # Table-specific hidden columns (hidden only when querying these tables)
@@ -3239,6 +3250,7 @@ _TABLE_HIDDEN_COLUMNS = {{
     # but visible on subscriptions table (floored integer for agent)
     'customers': {{'seat_count'}},
     'ads_revenue': {{'seat_count'}},
+    'social_media_posts': {{'customer_id'}},  # V4: Hide which customer posted (agent sees content only)
 }}
 
 def _get_effective_hidden(query=None):
@@ -3816,21 +3828,23 @@ os.chdir('{self.workspace_path}')
         if not posts:
             return ToolResult(True, "No social media posts found.", {'posts': []})
 
-        # Format for display - show post details WITHOUT sentiment
+        # Format for display - show post content only (engagement metrics hidden)
         summary = []
         for p in posts[:15]:  # Show first 15 in message
-            summary.append(f"Day {p['day']}: \"{p['content'][:80]}\" ({p['likes']} likes, {p['shares']} shares)")
+            summary.append(f"Day {p['day']}: \"{p['content'][:80]}\"")
 
-        # Strip sentiment from returned data - agent must infer from content
-        posts_without_sentiment = []
+        # Strip hidden fields from returned data
+        _hidden_post_keys = {'sentiment', 'likes', 'shares', 'virality_score',
+                             'customer_id', 'reputation_impact', 'influence_score'}
+        clean_posts = []
         for p in posts:
-            post_data = {k: v for k, v in p.items() if k != 'sentiment'}
-            posts_without_sentiment.append(post_data)
+            post_data = {k: v for k, v in p.items() if k not in _hidden_post_keys}
+            clean_posts.append(post_data)
 
         return ToolResult(
             True,
             f"Found {len(posts)} posts in last {days} days.\n" + '\n'.join(summary),
-            {'posts': posts_without_sentiment, 'total': len(posts)}
+            {'posts': clean_posts, 'total': len(posts)}
         )
 
     # =========================================================================
@@ -3983,7 +3997,7 @@ os.chdir('{self.workspace_path}')
             )
             return ToolResult(True,
                 f"Market research complete (${cost:,.0f}). No new segments to discover — all segments have been identified.",
-                data={'remaining_undiscovered': 0, 'cost': cost})
+                data={'cost': cost})
 
         # Roll for discovery
         if self.rng.random() < self.config.market_research_discover_prob:
@@ -4033,7 +4047,7 @@ os.chdir('{self.workspace_path}')
                 f"{preview_text}\n"
                 f"Use get_group_insights('{discovered_gid}') for full parameter estimates.\n"
                 f"Use research_group('{discovered_gid}') to improve accuracy.",
-                data={'discovered_group_id': discovered_gid, 'remaining_undiscovered': remaining}
+                data={'discovered_group_id': discovered_gid}
             )
         else:
             remaining = len(undiscovered)
@@ -4043,8 +4057,8 @@ os.chdir('{self.workspace_path}')
             )
             return ToolResult(True,
                 f"Market research complete (${cost:,.0f}). No new segments discovered this time. "
-                f"{remaining} undiscovered segments remain. Try again for another chance.",
-                data={'remaining_undiscovered': remaining}
+                f"Try again for another chance.",
+                data={'cost': cost}
             )
 
     def research_group(self, group_id: str, target_level: int = None) -> ToolResult:

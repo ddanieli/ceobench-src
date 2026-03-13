@@ -191,7 +191,7 @@ class BashAgentRunner:
         elif provider == "xai":
             self.base_url = "https://api.x.ai/v1"
         elif provider == "modal":
-            self.base_url = "https://princeton-tony--glm5-serving-server.us-east.modal.direct/v1"
+            self.base_url = "https://princeton-tony--glm5-bossbench-server.us-east.modal.direct/v1"
         else:
             self.base_url = None
 

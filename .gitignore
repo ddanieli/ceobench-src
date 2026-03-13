@@ -98,3 +98,7 @@ benchmark_log_day31_gameover.md
 test_social_posts_output.json
 agent_10days_log.txt
 agent_log.txt
+audit_pages.py
+cleanup_wiki_layout.py
+rename_to_bossbench.py
+upload_diagrams_to_notion.py

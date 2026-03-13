@@ -70,7 +70,6 @@ TABLE_DOCS = {
             'listed_price': 'REAL — List price per seat in $ (before promotions; enterprise may have negotiated price)',
             'promotion': 'REAL — Total promotion $ currently applied (updated at each billing cycle)',
             'effective_price': 'REAL — Actual price per seat = listed_price - promotion (floored at 0). Use this for revenue/satisfaction calculations.',
-            'effective_c_max': 'REAL — Customer\'s drifted c_max snapshot at billing time. Satisfaction uses this (not live c_max). NULL for leads/lost.',
             'start_day': 'INTEGER — Day subscription started',
             'end_day': 'INTEGER — Day subscription ended (NULL if active)',
             'status': "TEXT — 'lead', 'subscribed', 'cancelled', 'lost'",
@@ -84,6 +83,7 @@ TABLE_DOCS = {
         'internal_columns': {
             'daily_usage_rate': 'REAL — Sampled usage rate for billing period (internal)',
             'billing_period_usage': 'REAL — Cumulative usage this billing period (internal)',
+            'effective_c_max': 'REAL — Customer\'s drifted c_max snapshot at billing time (hidden from agent)',
             'churn_reason': 'TEXT — Structured churn reason enum (hidden from agent)',
             'first_billing_done': 'INTEGER — Whether first billing period completed (internal)',
         }
@@ -147,13 +147,13 @@ TABLE_DOCS = {
         'columns': {
             'post_id': 'INTEGER PRIMARY KEY — Unique post ID',
             'day': 'INTEGER — Day posted',
-            'customer_id': 'INTEGER — Foreign key to customers',
             'content': 'TEXT — Post content text',
-            'likes': 'INTEGER — Number of likes',
-            'shares': 'INTEGER — Number of shares',
-            'virality_score': 'REAL — Impact multiplier',
         },
         'internal_columns': {
+            'customer_id': 'INTEGER — Foreign key to customers (hidden — agent sees content only)',
+            'likes': 'INTEGER — Number of likes (hidden — engagement mechanics)',
+            'shares': 'INTEGER — Number of shares (hidden — engagement mechanics)',
+            'virality_score': 'REAL — Impact multiplier (hidden)',
             'sentiment': 'REAL — Sentiment score (agent must infer from content)',
             'reputation_impact': 'REAL — Impact on company reputation',
             'influence_score': 'REAL — Customer influence weight',
@@ -206,7 +206,7 @@ TABLE_DOCS = {
         }
     },
     'competitor_events': {
-        'description': 'Competitor product launches that raise user quality expectations',
+        'description': 'HIDDEN TABLE — Competitor product launches that raise user quality expectations',
         'columns': {
             'event_id': 'INTEGER PRIMARY KEY — Unique event ID',
             'start_day': 'INTEGER — Day the competitor event occurred',
@@ -255,7 +255,9 @@ TABLE_DOCS = {
             'cost': 'REAL — Amount spent on this attempt',
             'success': 'INTEGER — 1 if a new segment was discovered, 0 if not',
             'discovered_group_id': 'TEXT — Group ID discovered (NULL if unsuccessful)',
-            'remaining_undiscovered': 'INTEGER — Undiscovered segments remaining after this attempt',
+        },
+        'internal_columns': {
+            'remaining_undiscovered': 'INTEGER — Undiscovered segments remaining (hidden from agent)',
         }
     },
     'issues': {

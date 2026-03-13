@@ -415,11 +415,38 @@ class BashAgent(BaseAgent):
 
     def _call_anthropic(self) -> Optional[Action]:
         """Call Anthropic/Bedrock API and parse the response."""
+        import copy
         messages = []
         for msg in self.conversation:
             if msg.role == 'system':
                 continue
-            messages.append({'role': msg.role, 'content': msg.content})
+            messages.append({'role': msg.role, 'content': copy.deepcopy(msg.content)})
+
+        # Strip any leftover cache_control from previous messages, then add
+        # a single breakpoint on the last message.  Combined with the system
+        # prompt and tools breakpoints this stays within the 4-breakpoint limit.
+        def _strip_cache_control(content):
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and 'cache_control' in block:
+                        del block['cache_control']
+
+        for msg in messages:
+            _strip_cache_control(msg.get('content'))
+
+        # Add cache_control to the last message so the entire conversation
+        # prefix is cached between consecutive turns.
+        if messages:
+            last_msg = messages[-1]
+            content = last_msg.get('content', '')
+            if isinstance(content, str) and content:
+                last_msg['content'] = [
+                    {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(content, list) and content:
+                last_block = content[-1]
+                if isinstance(last_block, dict):
+                    last_block['cache_control'] = {"type": "ephemeral"}
 
         system_text = self._get_system_prompt_with_memory()
         system_content = [
