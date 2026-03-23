@@ -4043,14 +4043,15 @@ class Simulator:
 
                             # Add as a regular social media post (visible to agent)
                             sentiment = 'positive' if eff > 0 else 'negative'
-                            # Pick a random active subscriber from this group
+                            # Pick a random active subscriber from this group;
+                            # fall back to market_observer if no subscribers yet
                             cust = self.conn.execute("""
                                 SELECT c.customer_id FROM customers c
                                 JOIN subscriptions s ON c.customer_id = s.customer_id
                                 WHERE c.group_id = ? AND s.status = 'subscribed' AND s.end_day IS NULL
                                 ORDER BY RANDOM() LIMIT 1
                             """, (gid,)).fetchone()
-                            customer_id = cust['customer_id'] if cust else 0
+                            customer_id = cust['customer_id'] if cust else self._market_observer_id
 
                             comment_pid = add_social_media_post(
                                 self.conn, self.current_day, customer_id,
