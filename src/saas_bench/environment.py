@@ -17,7 +17,7 @@ from pathlib import Path
 from numpy.random import Generator, default_rng
 
 from .config import BenchmarkConfig, MODEL_TIERS, CAPACITY_TIERS
-from .database import init_database, get_config, get_cash, get_mrr, get_active_subscriber_count
+from .database import init_database, get_config, get_cash, get_mrr, get_active_subscriber_count, get_discovered_groups
 from .simulation import Simulator, DayResult
 from .tools import AgentTools, ToolResult
 
@@ -118,20 +118,61 @@ def build_daily_dashboard(
         f"Daily Spend: Ads=${config.get('spend_advertising', 0):.0f}, Ops=${config.get('spend_operations', 0):.0f}, Dev=${config.get('spend_development', 0):.0f}",
     ])
 
-    # Quality info
+    # Quality info — per discovered group, with all bonuses + tier multiplier
     q_shared_bonus_row = conn.execute("SELECT value FROM global_state WHERE key = 'q_shared_bonus'").fetchone()
     q_shared_bonus = float(q_shared_bonus_row['value']) if q_shared_bonus_row else 0.0
 
-    # Compute delivered quality per plan: (base_product_quality + q_shared_bonus) × tier_multiplier
+    # Per-group quality bonuses from targeted dev spend
+    q_group_bonuses = {}
+    for row in conn.execute("SELECT key, value FROM global_state WHERE key LIKE 'q_group_bonus_%'").fetchall():
+        gid = row['key'][len('q_group_bonus_'):]
+        q_group_bonuses[gid] = float(row['value'])
+
     base_pq = BenchmarkConfig.base_product_quality  # Class default (0.50)
     tier_a = config.get('tier_A', 1)
     tier_b = config.get('tier_B', 2)
     tier_c = config.get('tier_C', 3)
-    q_a = (base_pq + q_shared_bonus) * MODEL_TIERS[tier_a].quality_multiplier
-    q_b = (base_pq + q_shared_bonus) * MODEL_TIERS[tier_b].quality_multiplier
-    q_c = (base_pq + q_shared_bonus) * MODEL_TIERS[tier_c].quality_multiplier
+    mult_a = MODEL_TIERS[tier_a].quality_multiplier
+    mult_b = MODEL_TIERS[tier_b].quality_multiplier
+    mult_c = MODEL_TIERS[tier_c].quality_multiplier
 
-    lines.append(f"Product Quality: A={q_a:.3f}, B={q_b:.3f}, C={q_c:.3f}")
+    lines.append("")
+    lines.append(f"--- Delivered Quality (base={base_pq:.2f}, global_bonus={q_shared_bonus:.4f}) ---")
+    lines.append(f"{'Group':<8} {'Plan A (T'+str(tier_a)+')':<14} {'Plan B (T'+str(tier_b)+')':<14} {'Plan C (T'+str(tier_c)+')':<14} {'Grp Bonus':<10}")
+
+    discovered = sorted(get_discovered_groups(conn))
+    for gid in discovered:
+        gb = q_group_bonuses.get(gid, 0.0)
+        qa = (base_pq + q_shared_bonus + gb) * mult_a
+        qb = (base_pq + q_shared_bonus + gb) * mult_b
+        qc = (base_pq + q_shared_bonus + gb) * mult_c
+        gb_str = f"+{gb:.4f}" if gb > 0 else "0"
+        lines.append(f"{gid:<8} {qa:<14.4f} {qb:<14.4f} {qc:<14.4f} {gb_str:<10}")
+
+    # Agent social media post metrics (comments on yesterday's posts)
+    if day > 1:
+        agent_posts = conn.execute("""
+            SELECT asp.agent_post_id, asp.content, asp.views, asp.comment_post_ids,
+                   COUNT(smp.post_id) AS comment_count
+            FROM agent_social_media_posts asp
+            LEFT JOIN social_media_posts smp ON smp.reply_to_agent_post_id = asp.agent_post_id
+                AND smp.day = ?
+            WHERE asp.day = ?
+            GROUP BY asp.agent_post_id
+        """, (day - 1, day - 1)).fetchall()
+        if agent_posts:
+            lines.append("")
+            lines.append("--- Your Social Media Posts (Yesterday) ---")
+            for post in agent_posts:
+                comment_ids_str = ""
+                try:
+                    cids = json.loads(post['comment_post_ids'] or '[]')
+                    if cids:
+                        comment_ids_str = f" (comment post_ids: {cids})"
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                lines.append(f"  Post #{post['agent_post_id']}: {post['views']} views, {post['comment_count']} comments{comment_ids_str} — \"{post['content'][:80]}{'...' if len(post['content']) > 80 else ''}\"")
+
 
     # Daily calculation outputs
     if calc_outputs:
@@ -540,7 +581,7 @@ class SaaSBenchEnv:
 
         # Get all notifications for today (no read/unread tracking)
         notifications = self.conn.execute("""
-            SELECT notification_id, type, title
+            SELECT notification_id, type, message
             FROM notifications
             WHERE day = ?
             ORDER BY notification_id
@@ -548,7 +589,7 @@ class SaaSBenchEnv:
         """, (self.current_day,)).fetchall()
 
         for n in notifications:
-            items.append(f"[{n['notification_id']}] {n['title']}")
+            items.append(f"[{n['notification_id']}] {n['message']}")
 
         # Add thread inbox items (new threads + new messages on existing threads)
         items.extend(get_thread_inbox_items(self.conn, self.current_day))

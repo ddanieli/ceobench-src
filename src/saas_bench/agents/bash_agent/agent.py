@@ -36,9 +36,9 @@ class BashAgent(BaseAgent):
 
     Uses bash, read_file, write_file, edit_file, search_files, glob_files
     tools. Interacts with the simulator via novamind_api Python library
-    and novamind-operation CLI.
+    and ./novamind-operation CLI.
 
-    After calling `novamind-operation next-day`, context is refreshed:
+    After calling `./novamind-operation next-day`, context is refreshed:
     the conversation is cleared and rebuilt with system prompt + MEMORY.md
     contents + the new dashboard.
     """
@@ -221,7 +221,7 @@ class BashAgent(BaseAgent):
 
         # Safety: force next_day if too many turns
         if self.turns_today >= self.max_turns_per_day:
-            return Action(tool='bash', arguments={'command': 'novamind-operation next-day'})
+            return Action(tool='bash', arguments={'command': './novamind-operation next-day'})
 
         # If we have pending tool call results to process, add them
         if self._pending_tool_calls:
@@ -411,7 +411,7 @@ class BashAgent(BaseAgent):
                     continue  # Loop back to retry
                 else:
                     print(f"Traceback: {traceback.format_exc()}")
-                    return Action(tool='bash', arguments={'command': 'novamind-operation next-day'})
+                    return Action(tool='bash', arguments={'command': './novamind-operation next-day'})
 
     def _call_anthropic(self) -> Optional[Action]:
         """Call Anthropic/Bedrock API and parse the response."""

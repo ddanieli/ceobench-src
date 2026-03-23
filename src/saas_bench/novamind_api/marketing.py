@@ -103,3 +103,19 @@ def set_lead_promotion(global_promotion: Optional[float] = None,
     if by_channel_group is not None:
         args['by_channel_group'] = by_channel_group
     return _client.call('set_lead_promotion', args)
+
+
+def post_social_media(content: str, reply_to_post_id: Optional[int] = None) -> Dict:
+    """Post to social media or reply to an existing post.
+
+    Args:
+        content: Post content (max 280 characters).
+        reply_to_post_id: Optional post ID to reply to.
+
+    Returns:
+        Dict with post confirmation and virality info.
+    """
+    args = {'content': content}
+    if reply_to_post_id is not None:
+        args['reply_to_post_id'] = reply_to_post_id
+    return _client.call('post_social_media', args)

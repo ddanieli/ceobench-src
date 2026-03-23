@@ -57,8 +57,8 @@ if [ ! -f "$RUN_DIR/checkpoint.json" ]; then
     exit 1
 fi
 
-if [ ! -f "$RUN_DIR/world.db" ]; then
-    echo "ERROR: No world.db in $RUN_DIR"
+if [ ! -f "$RUN_DIR/world.nmdb" ]; then
+    echo "ERROR: No world.nmdb in $RUN_DIR"
     exit 1
 fi
 
@@ -77,8 +77,10 @@ AGENT_TURNS=$(python3 -c "import json; print(json.load(open('$RUN_DIR/checkpoint
 
 # ─── DB verification ───
 DB_INFO=$(python3 -c "
-import sqlite3
-conn = sqlite3.connect('$RUN_DIR/world.db', timeout=5)
+import sys; sys.path.insert(0, 'src')
+from saas_bench.db_protection import load_session_db
+from pathlib import Path
+conn = load_session_db(Path('$RUN_DIR/world.nmdb'))
 day = conn.execute('SELECT COALESCE(MAX(day), 0) FROM ledger').fetchone()[0]
 cash = conn.execute('SELECT COALESCE(SUM(amount), 0) FROM ledger').fetchone()[0]
 subs = conn.execute(\"\"\"SELECT COUNT(*) FROM subscriptions WHERE status='subscribed' AND end_day IS NULL\"\"\").fetchone()[0]
@@ -121,10 +123,9 @@ if [ "$DAY_DIFF" -gt 1 ] || [ "$DAY_DIFF" -lt 0 ]; then
     echo ""
 fi
 
-if [ "$DB_SUBS" = "0" ]; then
-    echo "  ❌ ERROR: 0 subscribers in DB! This likely means the DB is corrupted."
-    echo "  Do NOT resume from this checkpoint."
-    exit 1
+if [ "$DB_SUBS" = "0" ] && [ "$CP_DAY" -gt 30 ]; then
+    echo "  ⚠️  WARNING: 0 subscribers at day $CP_DAY! Might indicate DB issue."
+    echo "  Proceeding anyway — early days may legitimately have 0 subs."
 fi
 
 if [ "$DRY_RUN" = true ]; then

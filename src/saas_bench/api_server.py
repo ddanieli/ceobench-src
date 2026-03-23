@@ -22,21 +22,69 @@ _HIDDEN_TABLES: Set[str] = {
     'events',             # Internal shock/event tracking
     'api_costs',          # Meta-simulation API cost tracking
     'customer_state',     # Internal satisfaction/relationship state
+    'group_reputation',   # Internal reputation tracking
+    'group_awareness',    # Internal awareness tracking
+    'reputation_history', # Internal reputation history
+    'global_state',       # Internal simulation state
+    'feature_tests',      # Internal feature test tracking
+    'test_assignments',   # Internal test assignments
+    'customer_personas',  # Internal persona templates
+    'customer_persona_map', # Internal persona mapping
+    'group_characteristics', # Internal group characteristics
+    'enterprise_thread_counter',  # Internal thread ID counter
+    'world_context',      # Internal world context
+    'pending_group_research', # Internal async research tracking
+    'group_parameters',       # V2.1: Internal preference drift tracking
+    'competitor_events',      # V4: Hidden — agent should not see internal competitor boost mechanics
 }
 
 _HIDDEN_COLUMNS: Set[str] = {
     # Social media hidden columns
     'sentiment', 'reputation_impact', 'influence_score',
     # Latent customer satisfaction curve parameters (customers table)
-    'c_max', 'alpha', 'beta', 'budget_limit',
-    'steepness_left', 'steepness_right', 'quality_indifference_point',
-    'usage_scale', 'trial_period_days', 'ads_return_sensitivity',
-    # Subscription internals
-    'daily_usage_rate', 'billing_period_usage', 'churn_reason', 'first_billing_done',
-    # Research internals
+    'steepness_left', 'steepness_right', 'c_max',
+    # Latent customer preferences (customers table)
+    'usage_demand', 'quality_sensitivity', 'price_sensitivity',
+    'willingness_to_pay', 'usage_scale', 'patience',
+    # Enterprise negotiation parameters (customers table)
+    'reply_delay_mean', 'reply_delay_std', 'negotiation_rate', 'max_negotiation_turns',
+    # Thread hidden columns - customer/VC reply timing is internal simulation state
+    'next_reply_day',
+    # Internal tracking columns
+    'current_offer_price',
+    # Usage rate hidden - agent should only see actual (quota-capped) usage from daily_usage table
+    'daily_usage_rate', 'billing_period_usage',
+    # Customer state hidden columns (customer_state table) - internal satisfaction tracking
+    'satisfaction', 'relationship', 'open_issue_days',
+    'current_steepness_left', 'current_steepness_right', 'current_c_max', 'current_slope',
+    'last_drift_day', 'plan_was_acceptable', 'last_quality', 'last_satisfaction', 'shock_event_id',
+    # Group-level hidden state (group_reputation, group_awareness tables)
+    'reputation', 'awareness', 'last_updated_day', 'last_marketing_day',
+    # Reputation history internals
+    'change_reason',
+    # R&D project internals
     'actual_completion_day',
-    # Ads revenue internals
-    'sensitivity',
+    # Enterprise negotiation internal parameter (customers table)
+    'initial_offer_factor',
+    # Customer persona internal attribute (customers table)
+    'persona_communication',
+    # Internal thread status tracking (enterprise_turns)
+    '_internal_status',
+    # V4: Latent customer quality parameters (customers table)
+    'q_max', 'q_min', 'contract_lockin_penalty',
+    # V4: Internal ads sensitivity parameters (customers table)
+    'ads_quality_sensitivity', 'ads_return_sensitivity',
+    # V4: Subscription internals
+    'effective_c_max',        # Willingness-to-pay at subscription time
+    'churn_reason',           # Internal churn categorization
+    # V4: Social media internals (agent sees content but not engagement mechanics)
+    'likes', 'shares', 'virality_score',
+    # V4: R&D internals
+    'current_decay_reduction', 'decay_reduction_expiry_day',
+    # V4: Ads revenue internals
+    'sensitivity',            # Per-customer ads return sensitivity
+    # V4: Segment discovery internals
+    'remaining_undiscovered',
 }
 
 # Table-specific hidden columns (hidden only when querying these tables)
@@ -45,17 +93,18 @@ _TABLE_HIDDEN_COLUMNS: Dict[str, Set[str]] = {
     # but visible on subscriptions table (floored integer for agent)
     'customers': {'seat_count'},
     'ads_revenue': {'seat_count'},
+    'social_media_posts': {'customer_id'},  # V4: Hide which customer posted
 }
 
 
 def _is_schema_query(query: str) -> bool:
     """Check if query is trying to inspect database schema."""
     q = query.lower().strip()
-    if q.startswith('pragma'):
-        return True
-    if 'sqlite_master' in q or 'sqlite_schema' in q:
-        return True
-    return False
+    blocked_patterns = [
+        'sqlite_master', 'sqlite_schema', 'pragma', 'table_info',
+        'index_list', 'index_info', 'foreign_key_list'
+    ]
+    return any(p in q for p in blocked_patterns)
 
 
 def _references_hidden_table(query: str) -> Optional[str]:
@@ -244,6 +293,8 @@ class _APIHandler(BaseHTTPRequestHandler):
             self._handle_query()
         elif self.path == '/daily-scripts':
             self._handle_daily_scripts_post()
+        elif self.path == '/reinitialize':
+            self._handle_reinitialize()
         else:
             self._send_json({"error": f"Unknown endpoint: {self.path}"}, 404)
 
@@ -254,6 +305,10 @@ class _APIHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "ok"})
         elif self.path == '/daily-scripts':
             self._handle_daily_scripts_get()
+        elif self.path == '/dashboard':
+            self._handle_dashboard_get()
+        elif self.path == '/game-status':
+            self._handle_game_status()
         else:
             self._send_json({"error": f"Unknown endpoint: {self.path}"}, 404)
 
@@ -293,6 +348,23 @@ class _APIHandler(BaseHTTPRequestHandler):
                 self._send_json({"success": True, "data": {"output": str(result)}, "message": str(result)})
         except Exception as e:
             self._send_json({"success": False, "error": str(e), "data": None}, 500)
+
+    def _handle_reinitialize(self):
+        """Handle reinitialize request: POST /reinitialize."""
+        try:
+            server: NovaMindAPIServer = self.server._api_server
+            # Force reload of the simulation module
+            import importlib
+            import sys
+            if 'saas_bench.simulation' in sys.modules:
+                # Delete cached module to force reload
+                del sys.modules['saas_bench.simulation']
+            # Reinitialize the simulator to set up _group_rngs
+            server.simulator.initialize()
+            self._send_json({"success": True, "message": "Simulator reinitialized"})
+        except Exception as e:
+            import traceback
+            self._send_json({"success": False, "error": str(e), "traceback": traceback.format_exc()}, 500)
 
     def _handle_next_day(self):
         """Handle next-day advancement: POST /next-day."""
@@ -436,6 +508,41 @@ class _APIHandler(BaseHTTPRequestHandler):
             "current_day": server.tools.current_day,
         })
 
+    def _handle_dashboard_get(self):
+        """Return current dashboard: GET /dashboard.
+
+        Returns the last built dashboard (from advance_day), or builds
+        a fresh one for the current day if none exists yet.
+        """
+        server: NovaMindAPIServer = self.server._api_server
+        dashboard = server._last_dashboard
+        if not dashboard and server.conn:
+            day = server.tools.current_day
+            dashboard = build_daily_dashboard(server.conn, day)
+        self._send_json({
+            "dashboard": dashboard or f"=== Day {server.tools.current_day} ===\n(No data)",
+            "day": server.tools.current_day,
+        })
+
+    def _handle_game_status(self):
+        """Return simulation state for harness: GET /game-status.
+
+        Returns day, cash, subscriber count, and timeout flag.
+        """
+        from .database import get_cash, get_active_subscriber_count
+        server: NovaMindAPIServer = self.server._api_server
+        cash = 0
+        subs = 0
+        if server.conn:
+            cash = get_cash(server.conn)
+            subs = get_active_subscriber_count(server.conn)
+        self._send_json({
+            "day": server.tools.current_day,
+            "cash": cash,
+            "subscribers": subs,
+            "timed_out": server._step_day_timed_out,
+        })
+
 
 # Map tool names to AgentTools methods + argument extraction
 _TOOL_DISPATCH = {
@@ -449,6 +556,7 @@ _TOOL_DISPATCH = {
     'send_enterprise_deal': lambda tools, args: tools.send_enterprise_deal(deals=args.get('deals', [])),
     'reject_enterprise_deal': lambda tools, args: tools.reject_enterprise_deal(deals=args.get('deals', [])),
     'get_social_posts': lambda tools, args: tools.get_social_posts(args.get('days', 7), args.get('limit', 50)),
+    'post_social_media': lambda tools, args: tools.post_social_media(args.get('content', ''), args.get('reply_to_post_id')),
     'get_cost_info': lambda tools, args: tools.get_cost_info(),
     'log_rationale': lambda tools, args: tools.log_rationale(args.get('rationale', args.get('text', ''))),
     'start_research_project': lambda tools, args: tools.start_research_project(args.get('tier', args.get('project_id', ''))),
@@ -491,7 +599,8 @@ class NovaMindAPIServer:
     """
 
     def __init__(self, tools: AgentTools, simulator=None, conn=None,
-                 day_callback=None, dashboard_callback=None):
+                 day_callback=None, dashboard_callback=None,
+                 shock_manager=None, event_logger=None):
         """Initialize the API server.
 
         Args:
@@ -500,12 +609,16 @@ class NovaMindAPIServer:
             conn: Database connection for dashboard building
             day_callback: Optional callback(day, dashboard) called after advancing a day
             dashboard_callback: Optional callback(day) -> dashboard string
+            shock_manager: Optional ShockManager for generating shocks each day
+            event_logger: Optional EventLogger for logging events
         """
         self.tools = tools
         self.simulator = simulator
         self.conn = conn
         self.day_callback = day_callback
         self.dashboard_callback = dashboard_callback
+        self.shock_manager = shock_manager
+        self.event_logger = event_logger
         self._httpd: Optional[HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self.port: int = 0
@@ -545,6 +658,9 @@ class NovaMindAPIServer:
 
         Enforces a hard timeout (STEP_DAY_TIMEOUT seconds) on step_day().
         If exceeded, returns an error so the runner can save checkpoint and exit.
+
+        If a shock_manager is configured, shocks are checked before step_day
+        and inbox items are included in the dashboard.
         """
         import time as _time
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -552,10 +668,16 @@ class NovaMindAPIServer:
         with self._lock:
             if self.simulator is None:
                 return {"success": False, "error": "No simulator configured"}
+            new_day = self.tools.current_day + 1
+
+        # Check for shocks BEFORE step_day (so shock effects apply this day)
+        if self.shock_manager:
+            new_shocks = self.shock_manager.check_and_generate_shocks(new_day)
+            if self.event_logger:
+                for shock in new_shocks:
+                    self.event_logger.log_shock(shock.shock_type, shock.details)
 
         # Run step_day in a worker thread so we can enforce a timeout.
-        # We release _lock during step_day so the long computation doesn't
-        # block /query or /vars endpoints.
         _step_start = _time.monotonic()
 
         def _do_step():
@@ -569,7 +691,6 @@ class NovaMindAPIServer:
             elapsed = _time.monotonic() - _step_start
             self._last_step_elapsed = elapsed
             self._step_day_timed_out = True
-            # Don't wait for the orphaned thread — let it die with the process
             executor.shutdown(wait=False, cancel_futures=True)
             return {
                 "success": False,
@@ -583,15 +704,24 @@ class NovaMindAPIServer:
 
         with self._lock:
             self._last_day_result = day_result
-            new_day = self.tools.current_day + 1
             self.tools.set_current_day(new_day)
+
+        # Build inbox items from shocks + enterprise threads
+        inbox = []
+        if self.shock_manager:
+            inbox.extend(self.shock_manager.get_inbox_items(new_day))
+        if self.conn:
+            from saas_bench.environment import get_thread_inbox_items
+            inbox.extend(get_thread_inbox_items(self.conn, new_day))
 
         # Build dashboard OUTSIDE the lock so daily scripts can call back
         # to the API server (e.g., nm.query()) without deadlocking.
         if self.dashboard_callback:
             dashboard = self.dashboard_callback(new_day, day_result)
         elif self.conn:
-            dashboard = build_daily_dashboard(self.conn, new_day, day_result)
+            # Run daily scripts if available
+            calc_outputs = self._run_daily_scripts_internal() if hasattr(self, '_daily_script_snapshots') else None
+            dashboard = build_daily_dashboard(self.conn, new_day, day_result, calc_outputs, inbox)
         else:
             dashboard = f"=== Day {new_day} Dashboard ===\n(No dashboard data available)"
 

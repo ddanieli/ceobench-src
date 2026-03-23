@@ -243,7 +243,7 @@ if __name__ == "__main__":
 
     # Initialize database and tools
     state.conn = init_database(db_path)
-    state.tools = AgentTools(state.conn, 0, workspace / "agent", db_path)
+    state.tools = AgentTools(state.conn, 0, workspace / "agent", db_path, seed=42)
 
     # Run server
     server = MCPServer(state)

@@ -8,12 +8,13 @@ import fnmatch
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
 class NextDayTimeoutError(Exception):
-    """Raised when novamind-operation next-day times out.
+    """Raised when ./novamind-operation next-day times out.
 
     This should cause the runner to save checkpoint and kill the run.
     """
@@ -32,7 +33,7 @@ BASH_AGENT_TOOL_DEFS = [
         'name': 'bash',
         'description': (
             'Execute a bash command in the agent working directory. '
-            'Use this to run novamind-operation CLI commands, Python scripts, '
+            'Use this to run ./novamind-operation CLI commands, Python scripts, '
             'and any other shell commands. The novamind_api Python library is '
             'available for import in Python scripts.'
         ),
@@ -239,13 +240,79 @@ class BashAgentToolExecutor:
             raise ValueError(f"Path escapes workspace: {path_str}")
         return resolved
 
+    def _build_bwrap_cmd(self, command: str, ws: str, env: Dict[str, str]) -> list:
+        """Build a bwrap command that sandboxes bash to the workspace.
+
+        Uses bubblewrap (bwrap) to create a filesystem namespace where:
+        - The agent workspace is the ONLY writable directory
+        - System binaries, Python venv, and libraries are read-only
+        - No access to source code, home directory, or other paths
+        """
+        import shutil
+        bwrap = shutil.which('bwrap')
+        if not bwrap:
+            return None  # Fall back to unsandboxed execution
+
+        cmd = [bwrap]
+
+        # Read-only system paths
+        for sys_path in ['/usr', '/bin', '/lib', '/lib64', '/etc',
+                         '/sbin', '/usr/local']:
+            if os.path.exists(sys_path):
+                cmd.extend(['--ro-bind', sys_path, sys_path])
+
+        # /proc and /dev are needed for basic operation
+        cmd.extend(['--proc', '/proc'])
+        cmd.extend(['--dev', '/dev'])
+
+        # Writable /tmp (separate from workspace, for temp files)
+        cmd.extend(['--tmpfs', '/tmp'])
+
+        # Read-only Python venv (for novamind-operation, python, pip, etc.)
+        venv_bin = env.get('PATH', '').split(':')[0] if ':' in env.get('PATH', '') else ''
+        if venv_bin and os.path.isdir(venv_bin):
+            venv_root = os.path.dirname(venv_bin)  # e.g., .venv/
+            if os.path.isdir(venv_root):
+                cmd.extend(['--ro-bind', venv_root, venv_root])
+
+        # Read-only Python site-packages (for imports like novamind_api)
+        import sysconfig
+        site_packages = sysconfig.get_paths()['purelib']
+        if os.path.isdir(site_packages):
+            cmd.extend(['--ro-bind', site_packages, site_packages])
+        # Also bind the stdlib
+        stdlib = sysconfig.get_paths()['stdlib']
+        if os.path.isdir(stdlib):
+            cmd.extend(['--ro-bind', stdlib, stdlib])
+        # Python binary itself
+        python_prefix = sys.prefix
+        if os.path.isdir(python_prefix):
+            cmd.extend(['--ro-bind', python_prefix, python_prefix])
+
+        # The agent workspace — ONLY writable directory
+        cmd.extend(['--bind', ws, ws])
+
+        # Set working directory
+        cmd.extend(['--chdir', ws])
+
+        # Unshare namespaces for isolation
+        cmd.extend(['--unshare-all', '--share-net'])  # Keep network for API calls
+
+        # Set environment variables
+        for k, v in env.items():
+            cmd.extend(['--setenv', k, v])
+
+        # The actual command
+        cmd.extend(['bash', '-c', command])
+
+        return cmd
+
     def _exec_bash(self, args: Dict) -> str:
         """Execute a bash command, sandboxed to the workspace directory.
 
-        The command runs with a clean environment that only exposes
-        standard system paths. HOME and TMPDIR are set to the workspace
-        to prevent accidental writes elsewhere. A read-only bind of the
-        workspace prevents traversal outside it via symlinks or '..'.
+        Uses bubblewrap (bwrap) to create a true filesystem sandbox where
+        only the agent workspace is writable. System paths and Python are
+        available read-only. Falls back to soft sandbox if bwrap unavailable.
         """
         command = args.get('command', '')
         if not command:
@@ -265,24 +332,31 @@ class BashAgentToolExecutor:
         }
         env.update(self.extra_env)
 
-        # Run the command directly in the workspace directory.
-        # cwd=ws ensures the working directory is correct.
-        # No double-nesting of bash -c — that breaks quoting for
-        # commands containing single quotes, heredocs, etc.
-        #
+        # Try bwrap sandbox; fall back to basic Popen if unavailable
+        bwrap_cmd = self._build_bwrap_cmd(command, ws, env)
+
         # Use Popen so we can explicitly kill the process group on timeout.
         # subprocess.run() does NOT kill children on TimeoutExpired, leaving
         # zombie processes that can hold DB locks or resources.
         import signal
-        proc = subprocess.Popen(
-            ['bash', '-c', command],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=ws,
-            env=env,
-            start_new_session=True,  # Create new process group for clean kill
-        )
+        if bwrap_cmd:
+            proc = subprocess.Popen(
+                bwrap_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+        else:
+            proc = subprocess.Popen(
+                ['bash', '-c', command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=ws,
+                env=env,
+                start_new_session=True,
+            )
         try:
             stdout, stderr = proc.communicate(timeout=self.bash_timeout)
 
@@ -334,8 +408,8 @@ class BashAgentToolExecutor:
             except Exception:
                 pass
 
-            # If command is novamind-operation next-day, raise to kill the run
-            if 'novamind-operation next-day' in command:
+            # If command is ./novamind-operation next-day, raise to kill the run
+            if './novamind-operation next-day' in command:
                 raise NextDayTimeoutError(
                     f"next_day timed out after {self.bash_timeout}s",
                     partial_stdout=partial_stdout,

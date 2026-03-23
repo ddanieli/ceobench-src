@@ -3,20 +3,27 @@
 
 This script runs a simulation using the bash_agent with any supported LLM provider.
 The agent uses bash/file tools and interacts with the simulator via
-novamind_api (Python library) and novamind-operation (CLI).
+novamind_api (Python library) and ./novamind-operation (CLI).
+
+The simulation engine runs as a separate subprocess (novamind-server start-server).
+The harness communicates with it exclusively via HTTP — no direct DB or simulator
+access. This ensures the harness and the public repo have identical interfaces.
 
 Supports OpenAI, xAI/Grok, Anthropic (direct and Bedrock).
 """
 
 import json
 import os
+import shutil
+import subprocess
 import sys
+import time as _time
+import urllib.request
+import urllib.error
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-
-from numpy.random import Generator, PCG64
 
 # Add package to path
 package_root = Path(__file__).parent.parent.parent.parent
@@ -32,17 +39,7 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
-from saas_bench.config import BenchmarkConfig, SCENARIO_PACKS, ScenarioPack
-from saas_bench.database import init_database, get_cash, get_active_subscriber_count, get_all_group_reputations, get_all_group_awareness
-import sqlite3 as _sqlite3
-from saas_bench.simulation import Simulator
-from saas_bench.customer_llm import CustomerSimulator
-from saas_bench.tools import AgentTools
-from saas_bench.shocks import ShockManager
-from saas_bench.event_logger import EventLogger
-from saas_bench.environment import Action, build_daily_dashboard, get_thread_inbox_items
-from saas_bench.api_server import NovaMindAPIServer
-from saas_bench.docs_generator import initialize_workspace
+from saas_bench.environment import Action
 
 
 def now() -> str:
@@ -62,7 +59,12 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
 
 
 class BashAgentRunner:
-    """Runner for bash_agent with SaaS Bench."""
+    """Runner for bash_agent with SaaS Bench.
+
+    The simulation runs in a separate subprocess (novamind-server start-server).
+    This harness only handles: agent LLM calls, tool execution, timing, and
+    checkpoint management. All simulation state is queried via HTTP.
+    """
 
     def __init__(
         self,
@@ -112,9 +114,6 @@ class BashAgentRunner:
         self.logs_dir = self.workspace_dir / "logs"
         self.logs_dir.mkdir(exist_ok=True)
 
-        # Database path
-        self.db_path = self.workspace_dir / "world.db"
-
         # Log file for raw responses
         self.response_log_file = self.logs_dir / f"raw_responses_{self.run_id}.jsonl"
 
@@ -128,7 +127,6 @@ class BashAgentRunner:
             import queue, threading
             self._timing_queue = queue.Queue(maxsize=500)
             def _timing_poster():
-                import urllib.request
                 batch = []
                 while True:
                     try:
@@ -191,7 +189,7 @@ class BashAgentRunner:
         elif provider == "xai":
             self.base_url = "https://api.x.ai/v1"
         elif provider == "modal":
-            self.base_url = "https://princeton-tony--glm5-bossbench-server.us-east.modal.direct/v1"
+            self.base_url = "https://princeton-tony--glm5-serving-server.us-east.modal.direct/v1"
         else:
             self.base_url = None
 
@@ -217,18 +215,69 @@ class BashAgentRunner:
             client_kwargs["timeout"] = httpx.Timeout(600.0)  # 10min max per LLM call; retry on timeout
             self.client = OpenAI(**client_kwargs)
 
-        # Initialize RNG
-        self.rng = Generator(PCG64(seed))
-
         # Components (initialized in setup)
-        self.conn = None
-        self.simulator = None
-        self.shock_manager = None
-        self.tools = None
-        self.event_logger = None
         self.agent = None
-        self.api_server = None
         self.tool_executor = None
+        self._server_proc = None
+        self._server_port = None
+        self._session_id = None
+
+    # =========================================================================
+    # HTTP helpers — all simulation interaction goes through these
+    # =========================================================================
+
+    def _server_url(self, path: str) -> str:
+        return f"http://127.0.0.1:{self._server_port}{path}"
+
+    def _http_get(self, path: str, timeout: float = 30) -> Dict:
+        req = urllib.request.Request(self._server_url(path))
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())
+
+    def _http_post(self, path: str, data: Optional[Dict] = None, timeout: float = 1800) -> Dict:
+        body = json.dumps(data or {}).encode()
+        req = urllib.request.Request(
+            self._server_url(path), data=body,
+            headers={'Content-Type': 'application/json'},
+        )
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())
+
+    def _get_cash(self) -> float:
+        """Get current cash balance via HTTP query."""
+        try:
+            result = self._http_post('/query', {'sql': 'SELECT SUM(amount) FROM ledger'})
+            if result.get('success') and result.get('data', {}).get('rows'):
+                return result['data']['rows'][0][0] or 0
+        except Exception:
+            pass
+        return 0
+
+    def _get_game_status(self) -> Dict:
+        """Get game status (day, cash, subs, timeout) via HTTP."""
+        try:
+            return self._http_get('/game-status')
+        except Exception:
+            return {"day": 0, "cash": 0, "subscribers": 0, "timed_out": False}
+
+    def _get_dashboard(self) -> str:
+        """Get current dashboard via HTTP."""
+        try:
+            result = self._http_get('/dashboard')
+            return result.get('dashboard', '')
+        except Exception:
+            return "(Dashboard unavailable)"
+
+    def _advance_day_http(self) -> Dict:
+        """Force day advancement via HTTP POST /next-day."""
+        try:
+            return self._http_post('/next-day', timeout=1800)
+        except urllib.error.URLError as e:
+            return {"success": False, "error": str(e)}
+
+    # =========================================================================
+    # Logging
+    # =========================================================================
 
     def _log_response(self, turn: int, day: int, messages: List[Dict], raw_response: Any):
         entry = {
@@ -273,73 +322,144 @@ class BashAgentRunner:
             except Exception:
                 pass
 
-    def _build_dashboard(self, day: int, last_result=None) -> str:
-        """Build the daily dashboard."""
-        inbox = self.shock_manager.get_inbox_items(day)
-        inbox.extend(get_thread_inbox_items(self.conn, day))
-        # Run daily scripts from the agent workspace
-        calc_outputs = self._run_daily_scripts()
-        return build_daily_dashboard(self.conn, day, last_result, calc_outputs, inbox)
+    # =========================================================================
+    # Workspace setup
+    # =========================================================================
 
-    def _run_daily_scripts(self) -> Dict[str, str]:
-        """Run registered daily scripts from server-side snapshots.
+    def _initialize_from_public_repo(self):
+        """Copy public/ into agent workspace and create a session via the CLI.
 
-        Uses immutable content snapshots stored in the API server at registration
-        time. Even if the agent modifies the source file or daily_scripts/ copy,
-        the registered snapshot executes unchanged.
+        Flow:
+        1. Copy entire public/ directory into agent_workspace
+        2. Run 'novamind-server new-session' (uses compiled _engine/ bytecode)
+        3. Return the session metadata (session_id, db paths, etc.)
+
+        public/ must be built first via `uv run python build_public.py`.
         """
-        import subprocess
-        import tempfile
+        import stat
 
-        # Get snapshots from server (immutable copies stored at registration time)
-        snapshots = self.api_server.get_daily_scripts()
-        if not snapshots:
-            return {}
-
-        outputs = {}
-        env = {
-            'PATH': f'{os.path.dirname(sys.executable)}:/usr/local/bin:/usr/bin:/bin',
-            'HOME': str(self.agent_workspace),
-            'LANG': os.environ.get('LANG', 'en_US.UTF-8'),
-            'PYTHONPATH': str(self.agent_workspace),
-            'NOVAMIND_API_PORT': str(self.api_server.port),
-            'NOVAMIND_WORKSPACE': str(self.agent_workspace),
-        }
-
-        for name in sorted(snapshots.keys()):
-            content = snapshots[name]
-            # Write snapshot to a temp file for execution
-            tmp = tempfile.NamedTemporaryFile(
-                mode='w', suffix='.py', prefix=f'daily_{name}_',
-                dir=str(self.agent_workspace), delete=False
+        # Path: .../src/saas_bench/agents/bash_agent/run_test.py → project root is parent^5
+        public_dir = Path(__file__).parent.parent.parent.parent.parent / "public"
+        if not public_dir.exists():
+            raise FileNotFoundError(
+                f"public/ directory not found at {public_dir}. "
+                f"Run 'uv run python build_public.py' first."
             )
-            try:
-                tmp.write(content)
-                tmp.close()
-                result = subprocess.run(
-                    [sys.executable, '-u', tmp.name],
-                    capture_output=True, text=True,
-                    cwd=str(self.agent_workspace),
-                    env=env, timeout=60,
-                )
-                output = result.stdout
-                if result.stderr:
-                    output += f"\n[stderr] {result.stderr}"
-                outputs[name] = output
-            except subprocess.TimeoutExpired:
-                outputs[name] = "[Error: Script timed out after 60s]"
-            except Exception as e:
-                outputs[name] = f"[Error: {e}]"
-            finally:
-                try:
-                    os.unlink(tmp.name)
-                except OSError:
-                    pass
 
-        return outputs
+        self.agent_workspace.mkdir(parents=True, exist_ok=True)
+
+        # Copy directories (including compiled engine)
+        for dirname in ['docs', 'novamind_api', 'examples', '_engine']:
+            src = public_dir / dirname
+            dst = self.agent_workspace / dirname
+            if src.exists():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(
+                    src, dst,
+                    ignore=shutil.ignore_patterns('__pycache__'),
+                )
+
+        # Copy top-level files (CLI + server launcher)
+        for fname in ['README.md', 'novamind-operation', 'novamind-server', 'install.sh']:
+            src = public_dir / fname
+            if src.exists():
+                dst = self.agent_workspace / fname
+                shutil.copy2(src, dst)
+                if fname in ('novamind-operation', 'novamind-server', 'install.sh'):
+                    dst.chmod(dst.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+        # Always create daily_scripts directory
+        (self.agent_workspace / "daily_scripts").mkdir(exist_ok=True)
+
+        # Run novamind-server new-session via the compiled engine
+        server_script = self.agent_workspace / "novamind-server"
+        result = subprocess.run(
+            [
+                sys.executable, str(server_script),
+                "--base", str(self.agent_workspace),
+                "new-session",
+                "--days", str(self.total_days),
+                "--seed", str(self.seed),
+                "--cash", str(self.initial_cash),
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"novamind-server new-session failed:\n{result.stderr}\n{result.stdout}"
+            )
+
+        session_info = json.loads(result.stdout)
+        self._session_id = session_info["session_id"]
+        print(f"  Session created via CLI: {self._session_id}")
+        return session_info
+
+    def _launch_server(self):
+        """Launch novamind-server start-server as a subprocess.
+
+        Reads the first line of stdout to get the port, then waits for /health.
+        """
+        server_script = self.agent_workspace / "novamind-server"
+        self._server_proc = subprocess.Popen(
+            [
+                sys.executable, str(server_script),
+                "--base", str(self.agent_workspace),
+                "start-server",
+                "--session", self._session_id,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        # Read first line of stdout to get port info
+        first_line = self._server_proc.stdout.readline()
+        if not first_line:
+            stderr = self._server_proc.stderr.read()
+            raise RuntimeError(f"Server failed to start:\n{stderr.decode()}")
+
+        server_info = json.loads(first_line)
+        self._server_port = server_info["port"]
+        print(f"  Server started: port={self._server_port}, pid={server_info['pid']}")
+
+        # Wait for health check
+        for i in range(60):
+            try:
+                self._http_get('/health', timeout=2)
+                return
+            except Exception:
+                _time.sleep(0.5)
+
+        raise RuntimeError("Server did not respond to /health after 30s")
+
+    def _stop_server(self):
+        """Stop the server subprocess."""
+        if self._server_proc:
+            self._server_proc.terminate()
+            try:
+                self._server_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self._server_proc.kill()
+            self._server_proc = None
+
+    # =========================================================================
+    # Checkpoint
+    # =========================================================================
 
     def _save_checkpoint(self, day: int):
         """Save checkpoint for resume capability."""
+        # Get daily scripts from server
+        daily_scripts = {}
+        try:
+            resp = self._http_get('/daily-scripts')
+            if resp.get('success'):
+                # The GET endpoint returns script names/sizes, not content
+                # For full content we need to query differently
+                # For now, save empty — the scripts are also in the session dir
+                pass
+        except Exception:
+            pass
+
         checkpoint = {
             'day': day,
             'run_id': self.run_id,
@@ -348,11 +468,21 @@ class BashAgentRunner:
             'seed': self.seed,
             'scenario': self.scenario,
             'agent_total_turns': self.agent.total_turns if self.agent else 0,
-            'daily_scripts': self.api_server.get_daily_scripts() if self.api_server else {},
+            'daily_scripts': daily_scripts,
+            'session_id': self._session_id,
         }
         checkpoint_file = self.workspace_dir / "checkpoint.json"
         with open(checkpoint_file, 'w') as f:
             json.dump(checkpoint, f, indent=2)
+
+        # Copy session nmdb to run directory for analysis / resume
+        session_nmdb = self.agent_workspace / "sessions" / self._session_id / "world.nmdb"
+        harness_nmdb = self.workspace_dir / "world.nmdb"
+        try:
+            if session_nmdb.exists():
+                shutil.copy2(session_nmdb, harness_nmdb)
+        except Exception:
+            pass  # Non-critical
 
     def _load_checkpoint(self) -> Optional[Dict]:
         """Load checkpoint from disk."""
@@ -363,40 +493,37 @@ class BashAgentRunner:
         return None
 
     def _restore_from_checkpoint(self, checkpoint: Dict):
-        """Restore state from checkpoint."""
+        """Restore state from checkpoint.
+
+        Copies the harness nmdb back to the session directory (so the server
+        loads the correct state), truncates harness log files, and restores
+        agent state.
+        """
         cp_day = checkpoint['day']
 
-        # Clean up any partial data from days beyond checkpoint
-        # This handles the case where a previous run crashed mid-day
-        if self.conn:
-            day_tables = [
-                'daily_usage', 'service_day', 'ledger', 'config_history',
-                'ad_channel_leads', 'events', 'reputation_history',
-                'api_costs', 'social_media_posts', 'notifications',
-                'issues',
-            ]
-            for table in day_tables:
-                try:
-                    self.conn.execute(f"DELETE FROM {table} WHERE day > ?", (cp_day,))
-                except Exception:
-                    pass  # Table may not exist in older schemas
-            # Clean up subscriptions that started after checkpoint
-            self.conn.execute("DELETE FROM subscriptions WHERE start_day > ?", (cp_day,))
-            # Revert subscriptions that were cancelled/ended after checkpoint
-            # Exclude plan='pending' leads — they should stay as lost, not revert to subscribed
-            self.conn.execute(
-                "UPDATE subscriptions SET status='subscribed', end_day=NULL WHERE end_day > ? AND plan != 'pending'",
-                (cp_day,)
-            )
-            # Clean up enterprise turns created after checkpoint
-            self.conn.execute("DELETE FROM enterprise_turns WHERE day > ?", (cp_day,))
-            self.conn.commit()
-            print(f"  Cleaned partial data for days > {cp_day}")
+        # Restore session ID
+        self._session_id = checkpoint.get('session_id', self._session_id)
+
+        # Copy harness nmdb back to session directory
+        harness_nmdb = self.workspace_dir / "world.nmdb"
+        session_nmdb = self.agent_workspace / "sessions" / self._session_id / "world.nmdb"
+        if harness_nmdb.exists() and session_nmdb.parent.exists():
+            shutil.copy2(harness_nmdb, session_nmdb)
+            print(f"  Restored DB from checkpoint (day {cp_day})")
+
+        # Update session metadata to reflect checkpoint day
+        session_meta = self.agent_workspace / "sessions" / self._session_id / "session.json"
+        if session_meta.exists():
+            meta = json.loads(session_meta.read_text())
+            meta["current_day"] = cp_day
+            meta["status"] = "created"  # Will be set to "running" when server starts
+            session_meta.write_text(json.dumps(meta, indent=2))
 
         # Truncate JSONL logs to remove entries from days beyond checkpoint
         for log_file in [
             self.logs_dir / f"tool_results_{self.run_id}.jsonl",
             self.logs_dir / f"raw_responses_{self.run_id}.jsonl",
+            self.logs_dir / f"timing_{self.run_id}.jsonl",
         ]:
             if log_file.exists():
                 kept_lines = []
@@ -417,126 +544,57 @@ class BashAgentRunner:
                         f.write(line + "\n")
                 print(f"  Trimmed {log_file.name}: kept entries for days <= {cp_day}")
 
-        # Re-generate the checkpoint day's dashboard with correct DB data.
-        # Previous resumes may have written a dashboard with 0 subs (before the
-        # DB-fallback fix). Appending a fresh one ensures the monitor shows
-        # correct values on startup.
-        tool_log = self.logs_dir / f"tool_results_{self.run_id}.jsonl"
-        if self.conn and tool_log.exists():
-            fresh_dashboard = build_daily_dashboard(self.conn, cp_day)
-            entry = {
-                "timestamp": now(),
-                "turn": 0,
-                "day": cp_day,
-                "tool": "_dashboard",
-                "arguments": {},
-                "result": fresh_dashboard,
-            }
-            with open(tool_log, 'a') as f:
-                f.write(json.dumps(entry) + "\n")
-            print(f"  Appended fresh dashboard for Day {cp_day} to JSONL")
-
-        # Set simulator's current_day so step_day() increments to the right day
-        if self.simulator:
-            self.simulator.current_day = cp_day
-
-        # Set tools' current_day
-        if self.tools:
-            self.tools.set_current_day(cp_day)
-
         if self.agent:
             self.agent.total_turns = checkpoint.get('agent_total_turns', 0)
-        # Restore daily script snapshots
-        if self.api_server and 'daily_scripts' in checkpoint:
-            self.api_server.set_daily_scripts(checkpoint['daily_scripts'])
+
+    # =========================================================================
+    # Setup
+    # =========================================================================
 
     def setup(self):
-        """Initialize the simulation environment."""
+        """Initialize the simulation environment.
+
+        Flow:
+        1. Copy public/ into workspace and run 'novamind-server new-session'
+        2. Launch 'novamind-server start-server' as subprocess
+        3. Create agent and tool executor (communicate via HTTP)
+        """
         from .agent import BashAgent
         from .tools import get_bash_agent_tool_descriptions, BashAgentToolExecutor, NextDayTimeoutError
         self._NextDayTimeoutError = NextDayTimeoutError
 
-        scenario_pack = SCENARIO_PACKS.get(self.scenario, ScenarioPack(
-            name='Default', description='Balanced scenario'
-        ))
-
-        bench_config = BenchmarkConfig(
-            seed=self.seed,
-            total_days=self.total_days,
-            initial_cash=self.initial_cash,
-        )
-
-        self.conn = init_database(self.db_path)
-        # Allow cross-thread access for the API server (runs in a daemon thread)
-        # The API server uses a lock for serialization, so this is safe.
-        self.conn.execute("SELECT 1")  # ensure connection is initialized
-        # Re-open with check_same_thread=False for API server compatibility
-        self.conn.close()
-        self.conn = _sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.conn.row_factory = _sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        customer_sim = CustomerSimulator(client=None, conn=self.conn, config=bench_config)
-        self.simulator = Simulator(self.conn, bench_config, self.rng, customer_simulator=customer_sim)
-        self.shock_manager = ShockManager(self.conn, self.rng, scenario_pack)
-        self.tools = AgentTools(self.conn, 0, self.agent_workspace, self.db_path)
-
-        self.event_logger = EventLogger(
-            run_id=self.run_id,
-            output_dir=self.logs_dir,
-            seed=self.seed,
-            scenario=self.scenario,
-            config={
-                'model': self.model,
-                'provider': self.provider,
-                'seed': self.seed,
-                'scenario': self.scenario,
-                'total_days': self.total_days,
-                'initial_cash': self.initial_cash,
-                'agent_type': 'bash_agent',
-            }
-        )
-
-        self.simulator.set_event_logger(self.event_logger)
-        self.tools.set_event_logger(self.event_logger)
-
+        # ── Step 1: Copy public/ and create session via CLI ──
         if not self.continue_from:
-            self.simulator.initialize()
-            self.event_logger.log_run_start()
+            session_info = self._initialize_from_public_repo()
         else:
-            self.event_logger.log_run_start()
+            # Resuming — session already exists, find it
+            checkpoint = self._load_checkpoint()
+            if checkpoint:
+                self._session_id = checkpoint.get('session_id')
+            if not self._session_id:
+                # Fallback: find session in workspace
+                sessions_dir = self.agent_workspace / "sessions"
+                if sessions_dir.exists():
+                    dirs = sorted(sessions_dir.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True)
+                    if dirs:
+                        self._session_id = dirs[0].name
 
-        # Initialize agent workspace with docs
-        initialize_workspace(self.agent_workspace)
+        if not self._session_id:
+            raise RuntimeError("No session ID found. Cannot proceed.")
 
-        # Start the API server
-        self.api_server = NovaMindAPIServer(
-            tools=self.tools,
-            simulator=self.simulator,
-            conn=self.conn,
-            dashboard_callback=self._build_dashboard,
-        )
-        self.api_server.start()
+        # ── Step 2: Launch server subprocess ──
+        self._launch_server()
 
-        # Find the venv bin directory for novamind CLI access
-        import sysconfig
-        venv_bin = os.path.dirname(sys.executable)
-
-        # Create tool executor with API server port in environment
+        # ── Step 3: Create tool executor + agent ──
+        # Pass NOVAMIND_API_PORT so the CLI (./novamind-operation) connects to
+        # the already-running server instead of trying to start a new one.
         self.tool_executor = BashAgentToolExecutor(
             workspace_path=self.agent_workspace,
-            env={
-                'NOVAMIND_API_PORT': str(self.api_server.port),
-                'NOVAMIND_WORKSPACE': str(self.agent_workspace),
-                'PYTHONPATH': str(self.agent_workspace),
-                'PATH': f'{venv_bin}:/usr/local/bin:/usr/bin:/bin',
-            },
+            env={"NOVAMIND_API_PORT": str(self._server_port)},
         )
 
-        # Get bash agent tool descriptions
         tool_descriptions = get_bash_agent_tool_descriptions()
 
-        # Create agent
         self.agent = BashAgent(
             tool_descriptions=tool_descriptions,
             client=self.client,
@@ -559,7 +617,8 @@ class BashAgentRunner:
             'total_days': self.total_days,
             'initial_cash': self.initial_cash,
             'agent_type': 'bash_agent',
-            'api_server_port': self.api_server.port,
+            'api_server_port': self._server_port,
+            'session_id': self._session_id,
         }
         with open(self.workspace_dir / "config.json", 'w') as f:
             json.dump(config, f, indent=2)
@@ -567,7 +626,7 @@ class BashAgentRunner:
     def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a bash_agent tool.
 
-        Raises NextDayTimeoutError if novamind-operation next-day times out,
+        Raises NextDayTimeoutError if ./novamind-operation next-day times out,
         which triggers run checkpoint + kill in the run loop.
         """
         result = self.tool_executor.execute(tool_name, arguments)
@@ -577,6 +636,10 @@ class BashAgentRunner:
             self.agent.check_day_advanced(result)
 
         return result
+
+    # =========================================================================
+    # Main run loop
+    # =========================================================================
 
     def run(self, verbose: bool = True) -> Dict[str, Any]:
         """Run the full simulation."""
@@ -590,7 +653,7 @@ class BashAgentRunner:
                 self._restore_from_checkpoint(checkpoint)
 
                 # Check for bankruptcy before resuming
-                cash = self.conn.execute("SELECT SUM(amount) FROM ledger").fetchone()[0] or 0
+                cash = self._get_cash()
                 if cash < 0:
                     print(f"\n{'='*60}")
                     print(f"CANNOT RESUME — COMPANY IS BANKRUPT")
@@ -619,7 +682,7 @@ class BashAgentRunner:
             print(f"Model: {self.model}")
             print(f"Provider: {self.provider}")
             print(f"Seed: {self.seed}")
-            print(f"API Server Port: {self.api_server.port}")
+            print(f"API Server Port: {self._server_port}")
             print(f"Agent Workspace: {self.agent_workspace}")
             print(f"Workspace: {self.workspace_dir}")
             print(f"{'='*60}\n")
@@ -627,38 +690,26 @@ class BashAgentRunner:
         current_day = start_day - 1
         game_ended = False
         game_outcome = None
-        last_result = None
-
-        import time as _time
 
         for day in range(start_day, self.total_days + 1):
             _day_start = _time.monotonic()
             current_day = day
-            self.tools.set_current_day(day)
-            self.event_logger.set_day(day)
 
             if verbose:
                 print(f"\n{'='*40}")
                 print(f"DAY {day}")
                 print(f"{'='*40}")
 
-            # Check for shocks
-            new_shocks = self.shock_manager.check_and_generate_shocks(day)
-            for shock in new_shocks:
-                self.event_logger.log_shock(shock.shock_type, shock.details)
-                if verbose:
-                    print(f"  ⚡ Shock: {shock.shock_type}")
-
             # Build dashboard (timed)
             _t0 = _time.monotonic()
-            dashboard = self._build_dashboard(day, last_result)
+            dashboard = self._get_dashboard()
             _dashboard_elapsed = _time.monotonic() - _t0
             self._log_tool_result(0, day, '_dashboard', {}, dashboard)
             self._log_timing("dashboard", day, elapsed_s=round(_dashboard_elapsed, 3))
 
             # Agent loop for this day
             observation = dashboard
-            info = {'day': day, 'cash': get_cash(self.conn)}
+            info = {'day': day, 'cash': self._get_cash()}
             turns_today = 0
             day_ended = False
             _day_llm_total = 0.0
@@ -675,7 +726,7 @@ class BashAgentRunner:
 
                 if action is None:
                     # No action — force next-day via bash
-                    action = Action(tool='bash', arguments={'command': 'novamind-operation next-day'})
+                    action = Action(tool='bash', arguments={'command': './novamind-operation next-day'})
 
                 tool_name = action.tool
                 tool_args_preview = ""
@@ -703,7 +754,6 @@ class BashAgentRunner:
                     print(f"\n⚠️  next_day timed out on day {day} ({e})")
                     print(f"Auto-quitting. Saving checkpoint at day {day - 1}...")
                     self._save_checkpoint(day - 1)
-                    self.event_logger.save_incremental()
                     game_ended = True
                     game_outcome = 'timeout'
                     break
@@ -731,68 +781,51 @@ class BashAgentRunner:
                     day_ended = True
                     self.agent.clear_day_advanced()
 
-                # Check if step_day timed out (via API server)
-                if self.api_server._step_day_timed_out:
-                    print(f"\n⚠️  step_day timed out on day {day} (>{self.api_server.STEP_DAY_TIMEOUT}s)")
-                    print(f"Auto-quitting to prevent runaway timeouts. Saving checkpoint...")
-                    self._save_checkpoint(day - 1)  # Save checkpoint at PREVIOUS day (current day incomplete)
-                    self.event_logger.save_incremental()
+                # Check server for timeout (via game-status)
+                status = self._get_game_status()
+                if status.get('timed_out'):
+                    print(f"\n⚠️  step_day timed out on day {day}")
+                    print(f"Auto-quitting. Saving checkpoint...")
+                    self._save_checkpoint(day - 1)
                     game_ended = True
                     game_outcome = 'timeout'
                     break
 
-                info = {'day': day, 'cash': get_cash(self.conn)}
+                info = {'day': day, 'cash': status.get('cash', self._get_cash())}
 
             if game_ended:
                 break
 
-            # If day didn't end through agent action, step simulation
+            # If day didn't end through agent action, force step_day via HTTP
+            _step_elapsed = 0
             if not day_ended:
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
                 _step_start = _time.monotonic()
-                executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(self.simulator.step_day)
-                try:
-                    day_result = future.result(timeout=1200)
-                except FuturesTimeoutError:
-                    _step_elapsed = _time.monotonic() - _step_start
-                    print(f"\n⚠️  step_day took {_step_elapsed:.1f}s on day {day} (>1200s timeout)")
-                    print(f"Auto-quitting. Saving checkpoint at day {day - 1}...")
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    self._save_checkpoint(day - 1)
-                    self.event_logger.save_incremental()
-                    game_ended = True
-                    game_outcome = 'timeout'
-                    break
-                executor.shutdown(wait=False)
+                resp = self._advance_day_http()
                 _step_elapsed = _time.monotonic() - _step_start
-                last_result = day_result
-            else:
-                # Day was advanced by the API server — get the result
-                last_result = self.api_server._last_day_result
-                _step_elapsed = getattr(self.api_server, '_last_step_elapsed', 0)
+
+                if not resp.get('success'):
+                    error = resp.get('error', '')
+                    if error == 'step_day_timeout':
+                        print(f"\n⚠️  step_day timed out on day {day} ({_step_elapsed:.1f}s)")
+                        print(f"Auto-quitting. Saving checkpoint at day {day - 1}...")
+                        self._save_checkpoint(day - 1)
+                        game_ended = True
+                        game_outcome = 'timeout'
+                        break
+                    else:
+                        print(f"\n❌ advance_day failed: {error}")
 
             # Log step_day timing
             self._log_timing("step_day", day, elapsed_s=round(_step_elapsed, 2))
 
-            # Log slow step_day as warning (but don't auto-quit)
+            # Log slow step_day as warning
             if _step_elapsed > 300:
                 print(f"\n⚠️  step_day took {_step_elapsed:.1f}s on day {day} (>300s) — continuing")
 
-            # Log daily state
-            _subs = 0
-            if last_result:
-                _subs = get_active_subscriber_count(self.conn)
-                self.event_logger.log_daily_state(
-                    cash=last_result.cash,
-                    mrr=last_result.mrr,
-                    subscribers=_subs,
-                    usage=last_result.total_usage,
-                    overload=last_result.overload,
-                    outage=last_result.outage,
-                    group_reputations=get_all_group_reputations(self.conn),
-                    group_awareness=get_all_group_awareness(self.conn),
-                )
+            # Get post-day status
+            status = self._get_game_status()
+            _subs = status.get('subscribers', 0)
+            _cash = status.get('cash', 0)
 
             # Per-day timing summary
             _day_elapsed = _time.monotonic() - _day_start
@@ -806,10 +839,9 @@ class BashAgentRunner:
                              other_s=round(max(_day_other, 0), 1),
                              turns=turns_today,
                              subs=_subs,
-                             cash=last_result.cash if last_result else 0)
+                             cash=_cash)
 
             # Print per-day timing summary to stderr (visible in logs)
-            import sys as _sys
             _pct_llm = (_day_llm_total / _day_elapsed * 100) if _day_elapsed > 0 else 0
             _pct_step = (_step_elapsed / _day_elapsed * 100) if _day_elapsed > 0 else 0
             _pct_tool = (_day_tool_total / _day_elapsed * 100) if _day_elapsed > 0 else 0
@@ -818,17 +850,16 @@ class BashAgentRunner:
                   f"step_day={_step_elapsed:.0f}s ({_pct_step:.0f}%) | "
                   f"tools={_day_tool_total:.0f}s ({_pct_tool:.0f}%) | "
                   f"dashboard={_dashboard_elapsed:.1f}s | "
-                  f"turns={turns_today}", file=_sys.stderr, flush=True)
+                  f"turns={turns_today}", file=sys.stderr, flush=True)
 
-            if verbose and last_result:
-                print(f"  📊 End of day: Cash=${last_result.cash:,.0f}, IndSubs={last_result.total_individual_subscribers}, EntSeats={last_result.total_enterprise_subscription_seats}")
+            if verbose:
+                print(f"  📊 End of day: Cash=${_cash:,.0f}, Subs={_subs}")
 
             # Save checkpoint
             self._save_checkpoint(day)
-            self.event_logger.save_incremental()
 
             # Check bankruptcy
-            if self.simulator.shutdown_mode:
+            if _cash < 0:
                 game_ended = True
                 game_outcome = 'bankrupt'
                 if verbose:
@@ -838,13 +869,10 @@ class BashAgentRunner:
         if not game_outcome:
             game_outcome = 'completed'
 
-        # Stop API server
-        if self.api_server:
-            self.api_server.stop()
+        # Stop server
+        self._stop_server()
 
-        final_cash = get_cash(self.conn)
-        self.event_logger.log_run_end(final_cash, current_day, game_outcome)
-        self.event_logger.save()
+        final_cash = self._get_cash() if self._server_port else _cash
 
         if verbose:
             print(f"\n{'='*60}")

@@ -42,7 +42,9 @@ from .database import (
     # Group info level functions (discovery system)
     init_group_info_level, upgrade_group_info_level, get_discovered_groups,
     # Persona and notification functions
-    get_personas_for_group, assign_persona_to_customer, add_notification
+    get_personas_for_group, assign_persona_to_customer, add_notification,
+    # Social media multiplier
+    compute_social_media_multiplier,
 )
 from .personas import (
     initialize_all_personas, should_customer_post, generate_social_post,
@@ -160,13 +162,26 @@ class Simulator:
         macro_seed = int(rng.integers(0, 2**63))
         self._macro_rng = Generator(PCG64(macro_seed ^ 0x4D414352))  # XOR with 'MACR' constant
 
+        # Separate RNG for competitor events — must be independent of macro social posts
+        # (macro posts make variable _macro_rng draws depending on subscriber count,
+        #  which would desync competitor event timing/boosts across runs)
+        competitor_seed = int(rng.integers(0, 2**63))
+        self._competitor_rng = Generator(PCG64(competitor_seed ^ 0x434F4D50))  # XOR with 'COMP' constant
+
+        # Separate RNG for quality improvement noise — ensures identical noise
+        # sequence across agent strategies for cross-run comparability.
+        quality_seed = int(rng.integers(0, 2**63))
+        self._quality_rng = Generator(PCG64(quality_seed ^ 0x5155414C))  # XOR with 'QUAL' constant
+
         # PMI follows Ornstein-Uhlenbeck process with sinusoidal mean
         self._macro_pmi_current = config.macro_pmi_initial
         # Randomize initial cycle phase so different seeds start at different points
         if config.macro_pmi_random_phase:
             self._macro_cycle_phase_offset = float(self._macro_rng.uniform(0, 2 * math.pi))
         else:
-            self._macro_cycle_phase_offset = 0.0
+            # Use fixed phase from config (consume the RNG draw to keep stream consistent)
+            _ = float(self._macro_rng.uniform(0, 2 * math.pi))
+            self._macro_cycle_phase_offset = getattr(config, 'macro_pmi_fixed_phase', 0.0)
         self._macro_last_update_day = -config.macro_pmi_update_interval_days  # Force update on day 1
         self._macro_last_social_post_day = 0  # Track last macro social post batch
         self._macro_next_social_post_day = int(self._macro_rng.integers(
@@ -343,8 +358,9 @@ class Simulator:
 
         Three drift systems run sequentially:
 
-        0. GLOBAL DRIFT (global_q_min_drift, global_q_max_drift): Raises q_min/q_max for ALL groups
-           and ALL active subscribers uniformly. Models baseline competitive pressure.
+        0. GLOBAL DRIFT (global_q_bias_drift): Shifts q_min AND q_max for ALL groups
+           and ALL active subscribers uniformly by the same additive amount.
+           Models baseline competitive pressure.
 
         1. GROUP DRIFT (GROUP_PREFERENCE_DRIFT): Shifts group means.
            Affects both new signups and existing subscribers.
@@ -354,13 +370,13 @@ class Simulator:
            New customers are unaffected — they sample from the original group distribution.
            Models post-subscription behavioral changes (e.g., budget fatigue, rising expectations).
 
-        All are multiplicative: new = old × (1 + effective_rate). They stack for existing subscribers.
+        c_max_drift and steepness_left_drift are multiplicative: new = old × (1 + rate).
+        q_bias_drift is additive: q_min += bias, q_max += bias (both shift together, no caps/floors).
 
         Driftable parameters:
-        - c_max_drift: budget capacity
-        - q_min_drift: quality floor (minimum quality needed even at $0)
-        - q_max_drift: quality ceiling (max quality customer can perceive/utilize)
-        - steepness_left_drift: quality threshold steepness
+        - c_max_drift: budget capacity (multiplicative)
+        - q_bias_drift: additive shift to BOTH q_min and q_max (participation curve bias)
+        - steepness_left_drift: quality threshold steepness (multiplicative)
         - seat_count_drift: enterprise seat counts (group drift amplified by macro seat_count multiplier)
         """
         # Helper: compound daily rate over `days` periods
@@ -382,39 +398,23 @@ class Simulator:
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS _tmp_idx_active_group ON _tmp_active_subs(group_id)")
 
-        # --- GLOBAL q_min drift (applies to ALL groups uniformly) ---
-        global_qmin_drift = compound(self.config.global_q_min_drift)
-        if global_qmin_drift != 0.0:
-            # Update all group parameter means
+        # --- GLOBAL q_bias drift (applies to ALL groups uniformly) ---
+        # Additive: shifts both q_min and q_max by the same amount (no caps/floors)
+        global_q_bias = self.config.global_q_bias_drift * days
+        if global_q_bias != 0.0:
+            # Update all group parameter means (both q_min and q_max shift together)
             self.conn.execute("""
                 UPDATE group_parameters
-                SET current_q_min_mean = MAX(0.0, current_q_min_mean * (1.0 + ?))
-            """, (global_qmin_drift,))
-            # Update all active subscribers' q_min (use temp table)
+                SET current_q_min_mean = current_q_min_mean + ?,
+                    current_q_max_mean = current_q_max_mean + ?
+            """, (global_q_bias, global_q_bias))
+            # Update all active subscribers' q_min and q_max
             self.conn.execute("""
-                UPDATE customer_state SET current_q_min = CASE
-                    WHEN current_q_min IS NOT NULL THEN MAX(0.0, current_q_min * (1.0 + ?))
-                    ELSE NULL
-                END
+                UPDATE customer_state SET
+                    current_q_min = CASE WHEN current_q_min IS NOT NULL THEN current_q_min + ? ELSE NULL END,
+                    current_q_max = CASE WHEN current_q_max IS NOT NULL THEN current_q_max + ? ELSE NULL END
                 WHERE customer_id IN (SELECT customer_id FROM _tmp_active_subs)
-            """, (global_qmin_drift,))
-
-        # --- GLOBAL q_max drift (applies to ALL groups uniformly) ---
-        global_qmax_drift = compound(self.config.global_q_max_drift)
-        if global_qmax_drift != 0.0:
-            # Update all group parameter means
-            self.conn.execute("""
-                UPDATE group_parameters
-                SET current_q_max_mean = MAX(0.3, MIN(current_q_max_mean * (1.0 + ?), 1.0))
-            """, (global_qmax_drift,))
-            # Update all active subscribers' q_max
-            self.conn.execute("""
-                UPDATE customer_state SET current_q_max = CASE
-                    WHEN current_q_max IS NOT NULL THEN MAX(0.3, MIN(current_q_max * (1.0 + ?), 1.0))
-                    ELSE NULL
-                END
-                WHERE customer_id IN (SELECT customer_id FROM _tmp_active_subs)
-            """, (global_qmax_drift,))
+            """, (global_q_bias, global_q_bias))
 
         # --- Per-group drift (existing logic) ---
         all_params = get_all_group_parameters(self.conn)
@@ -433,13 +433,11 @@ class Simulator:
                 new_c_max *= (1.0 + compound(drift_rates['c_max_drift']))
                 new_c_max = max(10.0, min(new_c_max, 2000.0))  # Clamp to reasonable range
 
-            if 'q_min_drift' in drift_rates:
-                new_q_min *= (1.0 + compound(drift_rates['q_min_drift']))
-                new_q_min = max(0.0, new_q_min)
-
-            if 'q_max_drift' in drift_rates:
-                new_q_max *= (1.0 + compound(drift_rates['q_max_drift']))
-                new_q_max = max(0.3, min(new_q_max, 1.0))
+            # q_bias_drift: additive shift to both q_min and q_max (no caps/floors)
+            if 'q_bias_drift' in drift_rates:
+                bias = drift_rates['q_bias_drift'] * days
+                new_q_min += bias
+                new_q_max += bias
 
             if 'steepness_left_drift' in drift_rates:
                 new_sl_factor *= (1.0 + compound(drift_rates['steepness_left_drift']))
@@ -478,31 +476,17 @@ class Simulator:
                     )
                 """, (rate, group_id))
 
-            # q_min group drift: scale each customer's quality floor
-            if 'q_min_drift' in drift_rates:
-                rate = compound(drift_rates['q_min_drift'])
+            # q_bias group drift: additive shift to both q_min and q_max (no caps/floors)
+            if 'q_bias_drift' in drift_rates:
+                bias = drift_rates['q_bias_drift'] * days
                 self.conn.execute("""
-                    UPDATE customer_state SET current_q_min = CASE
-                        WHEN current_q_min IS NOT NULL THEN MAX(0.0, current_q_min * (1.0 + ?))
-                        ELSE NULL
-                    END
+                    UPDATE customer_state SET
+                        current_q_min = CASE WHEN current_q_min IS NOT NULL THEN current_q_min + ? ELSE NULL END,
+                        current_q_max = CASE WHEN current_q_max IS NOT NULL THEN current_q_max + ? ELSE NULL END
                     WHERE customer_id IN (
                         SELECT customer_id FROM _tmp_active_subs WHERE group_id = ?
                     )
-                """, (rate, group_id))
-
-            # q_max group drift: scale each customer's quality ceiling
-            if 'q_max_drift' in drift_rates:
-                rate = compound(drift_rates['q_max_drift'])
-                self.conn.execute("""
-                    UPDATE customer_state SET current_q_max = CASE
-                        WHEN current_q_max IS NOT NULL THEN MAX(0.3, MIN(current_q_max * (1.0 + ?), 1.0))
-                        ELSE NULL
-                    END
-                    WHERE customer_id IN (
-                        SELECT customer_id FROM _tmp_active_subs WHERE group_id = ?
-                    )
-                """, (rate, group_id))
+                """, (bias, bias, group_id))
 
             # seat_count group drift: scale enterprise subscribers' seat counts
             # Macro seat_count multiplier amplifies/dampens the drift rate
@@ -541,18 +525,17 @@ class Simulator:
                     )
                 """, (rate, group_id))
 
-            # q_min individual drift: update customer_state.current_q_min
-            if 'q_min_drift' in indiv_rates:
-                rate = compound(indiv_rates['q_min_drift'])
+            # q_bias individual drift: additive shift to both q_min and q_max (no caps/floors)
+            if 'q_bias_drift' in indiv_rates:
+                bias = indiv_rates['q_bias_drift'] * days
                 self.conn.execute("""
-                    UPDATE customer_state SET current_q_min = CASE
-                        WHEN current_q_min IS NOT NULL THEN MAX(0.0, current_q_min * (1.0 + ?))
-                        ELSE NULL
-                    END
+                    UPDATE customer_state SET
+                        current_q_min = CASE WHEN current_q_min IS NOT NULL THEN current_q_min + ? ELSE NULL END,
+                        current_q_max = CASE WHEN current_q_max IS NOT NULL THEN current_q_max + ? ELSE NULL END
                     WHERE customer_id IN (
                         SELECT customer_id FROM _tmp_active_subs WHERE group_id = ?
                     )
-                """, (rate, group_id))
+                """, (bias, bias, group_id))
 
             # steepness_left individual drift: update customer_state.current_steepness_left
             if 'steepness_left_drift' in indiv_rates:
@@ -560,21 +543,6 @@ class Simulator:
                 self.conn.execute("""
                     UPDATE customer_state SET current_steepness_left = CASE
                         WHEN current_steepness_left IS NOT NULL THEN MAX(0.2, MIN(current_steepness_left * (1.0 + ?), 5.0))
-                        ELSE NULL
-                    END
-                    WHERE customer_id IN (
-                        SELECT customer_id FROM _tmp_active_subs WHERE group_id = ?
-                    )
-                """, (rate, group_id))
-
-            # q_max individual drift: scale each customer's quality ceiling
-            # q_max is the max quality level a customer can perceive/utilize
-            # Clamped to [0.3, 1.0] — can't drift below reasonable floor or above perfect quality
-            if 'q_max_drift' in indiv_rates:
-                rate = compound(indiv_rates['q_max_drift'])
-                self.conn.execute("""
-                    UPDATE customer_state SET current_q_max = CASE
-                        WHEN current_q_max IS NOT NULL THEN MAX(0.3, MIN(current_q_max * (1.0 + ?), 1.0))
                         ELSE NULL
                     END
                     WHERE customer_id IN (
@@ -596,15 +564,22 @@ class Simulator:
         # L6: Cleanup temp table
         self.conn.execute("DROP TABLE IF EXISTS _tmp_active_subs")
 
-    def initialize(self):
-        """Initialize the simulation with starting state."""
-        # Set initial cash (categorized as initial_funding, NOT revenue)
-        add_ledger_entry(self.conn, 0, 'initial_funding',
-                        self.config.initial_cash, 'Initial seed funding')
+    def initialize(self, resume: bool = False):
+        """Initialize the simulation with starting state.
 
-        # Set initial configuration (including per-channel ad spend and quotas)
-        self.conn.execute("""
-            INSERT INTO config_history (
+        Args:
+            resume: If True, skip DB writes (ledger, config, global_state, group init)
+                    but still set up RNGs and in-memory state needed for simulation.
+        """
+        if not resume:
+            # Set initial cash (categorized as initial_funding, NOT revenue)
+            add_ledger_entry(self.conn, 0, 'initial_funding',
+                            self.config.initial_cash, 'Initial seed funding')
+
+        if not resume:
+            # Set initial configuration (including per-channel ad spend and quotas)
+            self.conn.execute("""
+                INSERT INTO config_history (
                 day, price_A, price_B, price_C,
                 tier_A, tier_B, tier_C,
                 spend_advertising, spend_operations, spend_development,
@@ -633,12 +608,10 @@ class Simulator:
             getattr(self.config, 'default_quota_A', 0),
             getattr(self.config, 'default_quota_B', 0),
             getattr(self.config, 'default_quota_C', 0),
-        ))
-
-        # Initialize global state
-        set_global_state(self.conn, 'q_shared_bonus', 0.0)
+            ))
 
         # === V2: Generate discoverable customer groups ===
+        # RNG must advance identically on resume to keep determinism
         discoverable = generate_discoverable_groups(
             self.rng,
             n_individual=self.config.discoverable_individual_count,
@@ -649,29 +622,76 @@ class Simulator:
         # Store reference for this simulator instance
         self.all_groups = dict(CUSTOMER_GROUPS)
 
-        # Network referral rates are now encoded directly in NETWORK_INFLUENCE_MATRIX
-        # (no separate network_leads_per_1000_customers initialization needed)
+        # === Per-group RNGs for deterministic customer attribute generation ===
+        # Each group gets its own RNG seeded from the main seed + group_id hash.
+        # This ensures the N-th customer from group X always has the same attributes
+        # regardless of how many customers other groups generate (agent actions don't
+        # affect the attribute sequence within a group).
+        self._group_rngs: Dict[str, Generator] = {}
+        for gid in CUSTOMER_GROUPS:
+            group_seed = int(self.rng.integers(0, 2**63))
+            # XOR with hash of group_id for extra differentiation
+            gid_hash = hash(gid) & 0xFFFFFFFF
+            self._group_rngs[gid] = Generator(PCG64(group_seed ^ gid_hash))
 
-        # Initialize per-group reputations (all groups including discoverable)
-        init_group_reputations(self.conn, self.config.initial_reputation)
+        if not resume:
+            # Initialize global state
+            set_global_state(self.conn, 'q_shared_bonus', 0.0)
 
-        # Initialize per-group brand awareness (DB schema requirement, not used in growth model)
-        init_group_awareness(self.conn, 0.0)
+            # Network referral rates are now encoded directly in NETWORK_INFLUENCE_MATRIX
+            # (no separate network_leads_per_1000_customers initialization needed)
 
-        # Initialize group info levels
-        # Initial groups start at Level 1 (visible with noisy params)
-        for gid in INITIAL_CUSTOMER_GROUPS:
-            init_group_info_level(self.conn, gid, info_level=1, is_discoverable=False, discovered_day=0)
-        # Discoverable groups start at Level 0 (invisible)
-        for gid in discoverable:
-            init_group_info_level(self.conn, gid, info_level=0, is_discoverable=True)
+            # Initialize per-group reputations (all groups including discoverable)
+            init_group_reputations(self.conn, self.config.initial_reputation)
 
-        # V2.1: Initialize group parameters (for preference drift)
-        init_group_parameters(self.conn, CUSTOMER_GROUPS)
+            # Initialize per-group brand awareness (DB schema requirement, not used in growth model)
+            init_group_awareness(self.conn, 0.0)
 
-        # Initialize personas and world context
-        initialize_all_personas(self.conn)
+            # Initialize group info levels
+            # Initial groups start at Level 1 (visible with noisy params)
+            for gid in INITIAL_CUSTOMER_GROUPS:
+                init_group_info_level(self.conn, gid, info_level=1, is_discoverable=False, discovered_day=0)
+            # Discoverable groups start at Level 0 (invisible)
+            for gid in discoverable:
+                init_group_info_level(self.conn, gid, info_level=0, is_discoverable=True)
 
+            # V2.1: Initialize group parameters (for preference drift)
+            init_group_parameters(self.conn, CUSTOMER_GROUPS)
+
+            # Initialize insight snapshots for initial groups at day 0
+            # (so get_group_insights has data from the start)
+            for gid in INITIAL_CUSTOMER_GROUPS:
+                gcfg = CUSTOMER_GROUPS[gid]
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO group_insight_snapshots
+                        (group_id, snapshot_day, snapshot_c_max, snapshot_q_min, snapshot_market_cap)
+                    VALUES (?, 0, ?, ?, ?)
+                """, (gid, gcfg.c_max_mean, gcfg.q_min_mean, gcfg.base_market_cap))
+
+            # Initialize personas and world context
+            initialize_all_personas(self.conn)
+
+            # Create a pseudo-customer for external/market posts (competitor events, etc.)
+            # This customer is never subscribed — only used to satisfy FK on social_media_posts.
+            self.conn.execute("""
+                INSERT INTO customers (
+                    customer_type, group_id, created_day,
+                    steepness_left, steepness_right, c_max, q_max, q_min, usage_demand,
+                    quality_sensitivity, price_sensitivity, willingness_to_pay, usage_scale, patience,
+                    seat_count, email
+                ) VALUES ('small', 'S1', 0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                          0.0, 0.0, 0.0, 0.0, 0.0, 1, 'market_observer@external')
+            """)
+            self._market_observer_id = self.conn.execute(
+                "SELECT customer_id FROM customers WHERE email = 'market_observer@external'"
+            ).fetchone()['customer_id']
+
+        if resume:
+            # Recover market_observer_id on resume
+            row = self.conn.execute(
+                "SELECT customer_id FROM customers WHERE email = 'market_observer@external'"
+            ).fetchone()
+            self._market_observer_id = row['customer_id'] if row else None
 
         self.conn.commit()
 
@@ -699,22 +719,29 @@ class Simulator:
         Perceived quality = q_shared + bonuses - penalties.
         """
         group = CUSTOMER_GROUPS[group_id]
+        # Use per-group RNG for deterministic customer attributes across runs
+        # Lazy initialization for _group_rngs (handles resume from checkpoint)
+        try:
+            grng = self._group_rngs[group_id]
+        except (AttributeError, KeyError):
+            self._group_rngs = {}
+            for gid in CUSTOMER_GROUPS:
+                group_seed = int(self.rng.integers(0, 2**63))
+                gid_hash = hash(gid) & 0xFFFFFFFF
+                self._group_rngs[gid] = Generator(PCG64(group_seed ^ gid_hash))
+            grng = self._group_rngs[group_id]
 
-        # V2.1: Use drifted group parameters if available (preference drift)
-        drifted = get_group_parameters(self.conn, group_id)
-        effective_c_max_mean = drifted['current_c_max_mean'] if drifted else group.c_max_mean
-        effective_q_min_mean = drifted['current_q_min_mean'] if drifted else group.q_min_mean
-        effective_q_max_mean = drifted['current_q_max_mean'] if drifted else group.q_max_mean
-        sl_factor = drifted['current_steepness_left_factor'] if drifted else 1.0
+        # Use STATIC group config means for deterministic customer creation.
+        # Drift/macro effects apply to existing subscribers post-creation, not at creation time.
+        # This ensures the N-th customer in a group has identical attributes across runs.
 
         # === SIGMOID CURVE PARAMETERS (ASYMMETRIC) ===
 
         # steepness_left: steepness for left half of curve (price < c_max/2)
         # - Lower values = gentler slope for cheap plans
         # - Customers are forgiving about quality at low prices
-        # V2.1: Scaled by group steepness_left_factor (drift from E2, etc.)
         steepness_left = clamp(
-            (self.rng.exponential(1.0) + 0.2) * sl_factor,  # Increased variance: wider exponential scale
+            (grng.exponential(1.0) + 0.2),  # No sl_factor — drift applies post-creation
             0.2, 6.0
         )
 
@@ -722,40 +749,33 @@ class Simulator:
         # - Higher values = steeper slope for expensive plans
         # - Customers demand premium quality at premium prices
         steepness_right = clamp(
-            self.rng.exponential(2.0) + 0.8,  # Increased variance: wider exponential scale
+            grng.exponential(2.0) + 0.8,
             0.5, 7.0
         )
 
         # c_max: hard budget constraint (maximum price customer will pay)
-        # V2.1: Uses drifted c_max_mean instead of static group mean
-        # V3: Macroeconomic effect — budgets expand/contract with business cycle
-        macro_wtp_mult = self.get_macro_multiplier(group_id, 'willingness_to_pay')
+        # Uses static group mean — no macro multiplier or drift at creation time
         c_max = max(15.0,
-            self.rng.normal(effective_c_max_mean * macro_wtp_mult, group.c_max_std * 1.2)
+            grng.normal(group.c_max_mean, group.c_max_std * 1.2)
         )
 
-        # q_max: quality ceiling — max quality this customer can meaningfully perceive/utilize
-        # V3.1: Uses drifted q_max_mean (affected by global drift, group drift, competitor events)
-        q_max = clamp(
-            self.rng.normal(effective_q_max_mean, group.q_max_std),
-            0.3, 1.0  # At least 0.3, at most 1.0 (perfect quality perception)
-        )
+        # q_min: quality floor — uses static group mean (no drift/competitor effects at creation)
+        q_min = max(1e-4, grng.normal(group.q_min_mean, group.q_min_std))
 
-        # q_min: quality floor — minimum quality needed even if product is free (y-intercept)
-        # V3.1: Uses drifted q_min_mean (affected by global drift, group drift, competitor events)
-        q_min = clamp(
-            self.rng.normal(effective_q_min_mean, group.q_min_std),
-            0.0, min(q_max - 0.05, 0.7)  # Must be below q_max with at least 0.05 gap
-        )
+        # q_max: quality ceiling — q_min + independently sampled q_range
+        # q_range = how much additional quality the customer can perceive above their floor
+        # V4: Reparameterized so q_max >= q_min by construction (q_range clamped to >= 0.01)
+        q_range = max(1e-4, grng.normal(group.q_range_mean, group.q_range_std))
+        q_max = q_min + q_range
 
         # usage_demand: how much they want to use the service
-        usage_demand = max(5.0,
-            self.rng.normal(group.usage_demand_mean, group.usage_demand_std)
+        usage_demand = max(1.0,
+            grng.normal(group.usage_demand_mean, group.usage_demand_std)
         )
 
         # === ENTERPRISE-SPECIFIC PARAMETERS ===
         if group.is_enterprise:
-            seat_count = int(self.rng.integers(group.seat_count_min, group.seat_count_max + 1))
+            seat_count = int(grng.integers(group.seat_count_min, group.seat_count_max + 1))
             customer_type = 'large'
             # Enterprise negotiation parameters (per-group settings)
             # V3: Macro deal_velocity effect — deals take LONGER in contraction
@@ -763,16 +783,16 @@ class Simulator:
             # Invert for reply delay: higher velocity = shorter delays
             macro_velocity = self.get_macro_multiplier(group_id, 'deal_velocity')
             velocity_delay_factor = 1.0 / macro_velocity if macro_velocity > 0 else 1.0
-            reply_delay_mean = max(0.5, self.rng.normal(
+            reply_delay_mean = max(0.5, grng.normal(
                 group.reply_delay_mean * velocity_delay_factor,
                 group.reply_delay_std * 0.5
             ))
-            reply_delay_std = max(0.1, self.rng.normal(
+            reply_delay_std = max(0.1, grng.normal(
                 group.reply_delay_std,
                 group.reply_delay_std * 0.3
             ))
             negotiation_rate = clamp(
-                self.rng.normal(
+                grng.normal(
                     group.negotiation_rate_mean,
                     group.negotiation_rate_std
                 ),
@@ -780,13 +800,13 @@ class Simulator:
             )
             # Initial offer factor: how far below max price customer starts (0.75 + noise)
             initial_offer_factor = clamp(
-                self.rng.normal(
+                grng.normal(
                     self.config.enterprise_initial_offer_factor_mean,
                     self.config.enterprise_initial_offer_factor_std
                 ),
                 0.5, 0.95  # Clamp to reasonable range (50%-95% of max price)
             )
-            max_negotiation_turns = max(2, int(round(self.rng.normal(
+            max_negotiation_turns = max(2, int(round(grng.normal(
                 group.max_negotiation_turns_mean,
                 group.max_negotiation_turns_std
             ))))
@@ -801,18 +821,18 @@ class Simulator:
 
         # === CONTRACT LOCK-IN PENALTY (per-customer, from group distribution) ===
         # Higher penalty = customer dislikes long contracts more
-        contract_lockin_penalty = max(0.0,
-            self.rng.normal(group.lockin_penalty_mean, group.lockin_penalty_std)
+        contract_lockin_penalty = max(1e-4,
+            grng.normal(group.lockin_penalty_mean, group.lockin_penalty_std)
         )
 
         # === ADS SENSITIVITY PARAMETERS (per-customer, from group distribution) ===
         # ads_quality_sensitivity: how much ads degrade perceived quality
         # ads_return_sensitivity: daily dollar return per unit ads strength
-        ads_quality_sensitivity = max(0.0,
-            self.rng.normal(group.ads_quality_sensitivity_mean, group.ads_quality_sensitivity_std)
+        ads_quality_sensitivity = max(1e-4,
+            grng.normal(group.ads_quality_sensitivity_mean, group.ads_quality_sensitivity_std)
         )
-        ads_return_sensitivity = max(0.0,
-            self.rng.normal(group.ads_return_sensitivity_mean, group.ads_return_sensitivity_std)
+        ads_return_sensitivity = max(1e-4,
+            grng.normal(group.ads_return_sensitivity_mean, group.ads_return_sensitivity_std)
         )
 
         # === LEGACY FIELDS (for compatibility) ===
@@ -820,13 +840,13 @@ class Simulator:
         price_sensitivity = clamp(steepness_right / 3.0, 0.1, 1.0)  # Use right steepness
         willingness_to_pay = c_max
         usage_scale = usage_demand
-        patience = clamp(self.rng.normal(0.5, 0.15), 0.1, 1.0)
+        patience = clamp(grng.normal(0.5, 0.15), 0.1, 1.0)
 
         # Generate multi-axis persona for this customer
         from .personas import generate_customer_persona
         persona = generate_customer_persona(
             group_id=group_id,
-            rng=self.rng,
+            rng=grng,
             usage_demand=usage_demand,
             c_max=c_max,
             seat_count=seat_count
@@ -1202,7 +1222,7 @@ class Simulator:
                                         current_q_max, current_q_min, current_slope)
             VALUES (?, 0.5, 0, 0.5, ?, ?, ?, ?, ?, ?)
         """, (customer_id, steepness_left, steepness_right, c_max, q_max, q_min,
-              (steepness_left + steepness_right) / 2))
+              max(1e-4, (steepness_left + steepness_right) / 2)))
 
         # Assign a persona to this customer
         self._assign_persona(customer_id, group_id)
@@ -1638,7 +1658,7 @@ class Simulator:
 
         for group_id, group in active_groups.items():
             # Reputation factor: reputation IS the multiplier directly
-            # rep=0 → 0 leads, rep=0.5 (neutral) → 0.5x, rep=1.0 → 1.0x
+            # rep=1e-3 (floor) → near-0 leads, rep=0.5 (neutral) → 0.5x, rep=1.0 → 1.0x
             rep = group_reps.get(group_id, 0.5)
             reputation_factor = rep
 
@@ -1657,9 +1677,9 @@ class Simulator:
                 rate = NETWORK_INFLUENCE_MATRIX.get(source_group_id, {}).get(group_id, 0.0)
                 if rate <= 0:
                     continue
-                # Log-scaled network effect: dampens exponential growth divergence
-                # log(1+subs) grows slowly — prevents runaway compounding
-                network_leads += math.log(1 + source_subs) * rate
+                # Sqrt-scaled network effect: sublinear, prevents runaway compounding
+                # sqrt(subs) balances meaningful network effects vs exponential blowup
+                network_leads += source_subs ** (1/2) * rate
 
             # === MARKET CAP SATURATION ===
             # Growth slows as subscribers approach market cap
@@ -1680,12 +1700,29 @@ class Simulator:
             # V3: Macroeconomic effect on lead generation
             macro_lead_mult = self.get_macro_multiplier(group_id, 'lead_generation')
 
-            # Total leads = reputation × demand_multiplier × cycle × macro × (channel + network)
-            daily_leads = reputation_factor * demand_multiplier * cycle_mult * macro_lead_mult * (total_channel_leads + network_leads)
+            # V3: Social media multiplier from agent posts (per-group)
+            social_media_mult = compute_social_media_multiplier(self.conn, self.current_day, group_id)
+
+            # Demand surge multiplier from shock events (global, not per-group)
+            surge_mult = self._get_surge_lead_multiplier()
+
+            # Total leads = reputation × demand × cycle × macro × social × surge × (channel + network)
+            daily_leads = reputation_factor * demand_multiplier * cycle_mult * macro_lead_mult * social_media_mult * surge_mult * (total_channel_leads + network_leads)
 
             # Sample from Poisson distribution
             n_new = self.rng.poisson(max(0, daily_leads))
             leads_by_group[group_id] = n_new
+
+            # Record all multipliers for post-run analysis (hidden from agent)
+            self.conn.execute("""
+                INSERT OR REPLACE INTO _hidden_lead_multiplier_snapshot
+                (day, group_id, reputation_factor, demand_multiplier, cycle_mult,
+                 macro_lead_mult, social_media_mult, surge_mult, total_channel_leads,
+                 network_leads, daily_leads_expected, actual_leads)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (self.current_day, group_id, reputation_factor, demand_multiplier,
+                  cycle_mult, macro_lead_mult, social_media_mult, surge_mult,
+                  total_channel_leads, network_leads, daily_leads, n_new))
 
             # =========================================================================
             # Acquisition source attribution (proportional to contribution)
@@ -1880,7 +1917,7 @@ class Simulator:
                 cm = params.get('c_max', 100.0)
                 qmx = params.get('q_max', 0.75)
                 qmn = params.get('q_min', 0.25)
-                cs_rows.append((cid, sl, sr, cm, qmx, qmn, (sl + sr) / 2))
+                cs_rows.append((cid, sl, sr, cm, qmx, qmn, max(1e-4, (sl + sr) / 2)))
             self.conn.executemany("""
                 INSERT INTO customer_state (customer_id, satisfaction, open_issue_days, relationship,
                                             current_steepness_left, current_steepness_right, current_c_max,
@@ -3019,7 +3056,7 @@ class Simulator:
         )
 
     # Maximum number of LLM-generated social posts per day
-    MAX_POSTS_PER_DAY = 20
+    MAX_POSTS_PER_DAY = 5
 
     def _generate_sampled_social_posts(self, customer_events: Dict[int, Dict], churn_events: list,
                                         enterprise_churn_events: list = None):
@@ -3261,40 +3298,10 @@ class Simulator:
         selected = [candidates[i] for i in indices]
 
         # Collect regular post work items (don't execute yet — unified executor handles all)
-        all_post_work = list(selected)  # Will be extended with competitor posts
+        all_post_work = list(selected)
 
-        # ========================================================================
-        # Competitor event social media posts
-        # During active competitor events, generate additional posts about competitor
-        # ========================================================================
-        active_competitor_events = self.conn.execute("""
-            SELECT event_id, boost_amount, description FROM competitor_events
-            WHERE post_end_day >= ?
-        """, (self.current_day,)).fetchall()
-
-        if active_competitor_events and candidates:
-            competitor_posts_per_day = self.config.competitor_event_posts_per_day
-            n_comp_sample = min(competitor_posts_per_day, len(candidates))
-            comp_weights = [c['weight'] for c in candidates]
-            comp_total = sum(comp_weights)
-            if comp_total > 0:
-                comp_probs = [w / comp_total for w in comp_weights]
-                comp_indices = self.rng.choice(
-                    len(candidates), size=n_comp_sample, replace=False, p=comp_probs
-                )
-                comp_selected = [dict(candidates[i]) for i in comp_indices]  # shallow copy
-
-                # Use the most recent active event for context
-                event = active_competitor_events[0]
-                for cand in comp_selected:
-                    cand['post_type'] = 'competitor_product'
-                    cand['event_context'] = {
-                        'event_type': 'competitor_product',
-                        'competitor_event_description': event['description'],
-                        'boost_amount': event['boost_amount'],
-                    }
-
-                all_post_work.extend(comp_selected)
+        # NOTE: Competitor event posts are now generated independently of subscribers
+        # in _generate_competitor_event_posts() — no longer sampled from candidates here.
 
         # Return work items + context for unified parallel execution
         return all_post_work, influence_cache
@@ -3494,6 +3501,8 @@ class Simulator:
         if not self.customer_simulator:
             if regular_work:
                 self._generate_posts_template(regular_work, influence_cache)
+            if macro_work:
+                self._generate_macro_posts_template(macro_work)
             return None
 
         # Fetch recent posts once (shared across all calls for dedup)
@@ -3749,6 +3758,332 @@ class Simulator:
                 influence_score=inf_score
             )
 
+    def _generate_macro_posts_template(self, macro_work: list):
+        """Generate macro economy social media posts using templates (no LLM fallback).
+
+        These posts represent external market commentary about macroeconomic conditions.
+        """
+        from .database import add_social_media_post
+
+        publication_templates = {
+            'strong_expansion': [
+                "ISM PMI just came in at {pmi:.1f} — strong expansion territory. Tech budgets are growing, SaaS renewals looking solid.",
+                "New ISM data: {pmi:.1f} PMI. Business investment is surging. Great time to be in enterprise software.",
+                "PMI at {pmi:.1f}. Economy is firing on all cylinders. Expect aggressive SaaS expansion plans this quarter.",
+            ],
+            'expansion': [
+                "ISM PMI at {pmi:.1f} — still in expansion. Cautiously optimistic about tech spending continuing.",
+                "New ISM data shows {pmi:.1f} PMI. Growth continues but at a measured pace. SaaS budgets holding steady.",
+                "PMI came in at {pmi:.1f}. Moderate growth trajectory. Most companies maintaining their software investments.",
+            ],
+            'neutral': [
+                "ISM PMI at {pmi:.1f} — right at the borderline. Mixed signals for tech procurement decisions.",
+                "New PMI data: {pmi:.1f}. Neither expansion nor contraction. Companies in wait-and-see mode on new software purchases.",
+                "PMI reading of {pmi:.1f}. Uncertain economic outlook is making budget approvals slower across the board.",
+            ],
+            'contraction': [
+                "ISM PMI dropped to {pmi:.1f}. Contraction territory. Expect tighter software budgets and longer sales cycles.",
+                "PMI at {pmi:.1f} — not great. Companies are reviewing subscriptions and delaying new tool purchases.",
+                "New ISM data: {pmi:.1f}. Economic weakness is real. SaaS vendors should prepare for increased churn.",
+            ],
+            'severe_contraction': [
+                "ISM PMI at {pmi:.1f}. Deep contraction. Massive budget cuts underway across tech organizations.",
+                "PMI just came in at {pmi:.1f}. Recessionary conditions. Expect subscription cancellations and hiring freezes.",
+                "New ISM data: {pmi:.1f}. This is alarming. Companies are cutting SaaS spend aggressively.",
+            ],
+        }
+
+        batch_templates = {
+            'strong_expansion': [
+                "Business is booming. Our SaaS stack just got approved for a major expansion. Economy is clearly humming.",
+                "Seeing more RFPs than ever this quarter. Companies are investing heavily in new tools.",
+                "Tech hiring is up, budgets are up, morale is up. PMI numbers back up what we're seeing on the ground.",
+            ],
+            'expansion': [
+                "Cautiously expanding our tool subscriptions this quarter. Economy looks stable enough to invest.",
+                "Most of our clients are maintaining or slightly growing their tech budgets. Steady growth environment.",
+                "Software spending is holding up well. Not explosive growth but consistent demand across the board.",
+            ],
+            'neutral': [
+                "Hard to read the market right now. Some sectors growing, others pulling back. Holding steady on tech spend.",
+                "Mixed signals everywhere. We're keeping our current subscriptions but holding off on new ones.",
+                "Budget planning is tricky in this environment. PMI hovering around 50 doesn't give much clarity.",
+            ],
+            'contraction': [
+                "Starting to see clients delay software renewals. The economic slowdown is real.",
+                "Had two budget review meetings this week. Leadership wants to cut SaaS spend by 15%.",
+                "The mood has shifted. Companies are moving from growth mode to survival mode on tech spending.",
+            ],
+            'severe_contraction': [
+                "Three clients cancelled their subscriptions this week alone. Recession is hitting enterprise tech hard.",
+                "Emergency budget cuts across the board. Non-essential software is being axed immediately.",
+                "Haven't seen this level of tech spending pullback since 2020. Every renewal is a fight.",
+            ],
+        }
+
+        for item in macro_work:
+            pmi = item.get('pmi', 50.0)
+            trend = item.get('trend', 'neutral')
+            macro_type = item.get('macro_type', 'batch')
+            customer_id = item.get('customer_id')
+
+            if macro_type == 'publication':
+                templates = publication_templates.get(trend, publication_templates['neutral'])
+            else:
+                templates = batch_templates.get(trend, batch_templates['neutral'])
+
+            template = templates[int(self._macro_rng.integers(0, len(templates)))]
+            content = template.format(pmi=pmi) if '{pmi' in template else template
+
+            # Determine sentiment from trend
+            if trend in ('strong_expansion', 'expansion'):
+                sentiment = 'positive'
+            elif trend in ('contraction', 'severe_contraction'):
+                sentiment = 'negative'
+            else:
+                sentiment = 'neutral'
+
+            views = int(100 * (1 + self._macro_rng.random()))
+            likes = int(views * 0.04 * (1 + self._macro_rng.random()))
+            shares = int(views * 0.015 * (1 + self._macro_rng.random()))
+
+            add_social_media_post(
+                self.conn, self.current_day, customer_id,
+                sentiment, content, likes=likes, shares=shares,
+                virality_score=0.0, reputation_impact=0.0, influence_score=0.0,
+            )
+
+    def _process_agent_social_posts(self, config: dict):
+        """Judge today's agent social media posts and generate customer replies for viral ones.
+
+        For each unscored agent post:
+        1. Call Haiku LLM judge once per discovered customer group
+        2. Compute view counts from scores (lognormal noise)
+        3. For viral reactions (|effect| >= 0.6), generate a customer reply
+        4. Update the agent post row with effects and views
+        """
+        import json
+        import math
+        import numpy as np
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from .database import (
+            get_discovered_groups, get_recent_agent_posts_for_judge,
+            add_social_media_post, add_notification,
+        )
+        from .personas import GROUP_CHARACTERISTICS
+        from .customer_llm import judge_agent_social_post, generate_customer_reply_to_agent
+
+        if not self.customer_simulator:
+            return
+
+        # Get all unscored agent posts (effect_by_group == '{}')
+        # Note: posts are created with day = current_day - 1 (before step_day increments),
+        # so we match on any unscored post rather than filtering by current_day.
+        rows = self.conn.execute("""
+            SELECT agent_post_id, day, content, reply_to_post_id
+            FROM agent_social_media_posts
+            WHERE effect_by_group = '{}'
+        """).fetchall()
+
+        if not rows:
+            return
+
+        discovered = get_discovered_groups(self.conn)
+        if not discovered:
+            return
+
+        recent_posts = get_recent_agent_posts_for_judge(self.conn, self.current_day)
+        subs_per_group = self.conn.execute("""
+            SELECT c.group_id, COUNT(*) as cnt
+            FROM subscriptions s JOIN customers c ON s.customer_id = c.customer_id
+            WHERE s.status = 'subscribed' AND s.end_day IS NULL
+            GROUP BY c.group_id
+        """).fetchall()
+        subs_map = {r['group_id']: r['cnt'] for r in subs_per_group}
+        total_subs = sum(subs_map.values())
+        mrr = self.conn.execute("""
+            SELECT COALESCE(SUM(
+                CASE WHEN c.customer_type = 'large'
+                     THEN s.effective_price * CAST(c.seat_count AS INTEGER)
+                     ELSE s.effective_price
+                END
+            ), 0)
+            FROM subscriptions s JOIN customers c ON s.customer_id = c.customer_id
+            WHERE s.status = 'subscribed' AND s.end_day IS NULL
+        """).fetchone()[0]
+
+        bedrock_client = self.customer_simulator.bedrock_client
+        social_model = self.config.social_post_llm_model
+        viral_threshold = 0.6
+
+        for row in rows:
+            post_id = row['agent_post_id']
+            content = row['content']
+            reply_to_id = row['reply_to_post_id']
+
+            # Get original post content if this is a reply
+            reply_to_content = None
+            if reply_to_id:
+                orig = self.conn.execute(
+                    "SELECT content FROM social_media_posts WHERE post_id = ?",
+                    (reply_to_id,)
+                ).fetchone()
+                if orig:
+                    reply_to_content = orig['content']
+
+            # Judge per discovered group (parallel)
+            effect_by_group = {}
+            reasoning_by_group = {}
+            judge_futures = {}
+
+            with ThreadPoolExecutor(max_workers=min(len(discovered), 6)) as executor:
+                for gid in discovered:
+                    chars = GROUP_CHARACTERISTICS.get(gid, {})
+                    desc = chars.get('description', gid)
+                    tone = chars.get('social_media_tone', 'neutral')
+                    sub_count = subs_map.get(gid, 0)
+
+                    future = executor.submit(
+                        judge_agent_social_post,
+                        bedrock_client, self.config, content,
+                        gid, desc, tone, total_subs, mrr,
+                        recent_posts, reply_to_content
+                    )
+                    judge_futures[future] = gid
+
+                for future in as_completed(judge_futures):
+                    gid = judge_futures[future]
+                    try:
+                        effect, reasoning, in_tok, out_tok = future.result()
+                        effect_by_group[gid] = effect
+                        reasoning_by_group[gid] = reasoning
+                        # Log cost
+                        self.customer_simulator._log_cost(
+                            self.current_day, 'agent_social_judge',
+                            in_tok, out_tok, model=social_model
+                        )
+                    except Exception:
+                        effect_by_group[gid] = 0.0
+
+            # Compute views per group from effect scores
+            # Linear 1x-3x below viral threshold, exponential 3x-100x above
+            views_by_group = {}
+            total_views = 0
+            _exp_k = math.log(100.0 / 3.0) / (1.0 - viral_threshold)  # ~8.77
+            for gid in discovered:
+                eff = abs(effect_by_group.get(gid, 0.0))
+                base = max(50, subs_map.get(gid, 0) * 0.1)
+                if eff <= viral_threshold:
+                    # Linear: 1x at 0, 3x at threshold
+                    view_mult = 1.0 + eff * (3.0 - 1.0) / viral_threshold
+                else:
+                    # Exponential: 3x at threshold, 100x at 1.0
+                    view_mult = 3.0 * math.exp(_exp_k * (eff - viral_threshold))
+                raw_views = base * view_mult
+                # Add lognormal noise (sigma=0.3 for ~30% variation)
+                noisy = int(raw_views * self.rng.lognormal(0, 0.3))
+                views_by_group[gid] = noisy
+                total_views += noisy
+
+            # Update agent post with effects, views, and judge reasoning
+            try:
+                self.conn.execute("""
+                    UPDATE agent_social_media_posts
+                    SET effect_by_group = ?, views = ?, views_by_group = ?, reasoning_by_group = ?
+                    WHERE agent_post_id = ?
+                """, (json.dumps(effect_by_group), total_views,
+                      json.dumps(views_by_group), json.dumps(reasoning_by_group), post_id))
+            except Exception:
+                # Fallback if reasoning_by_group column doesn't exist yet
+                self.conn.execute("""
+                    UPDATE agent_social_media_posts
+                    SET effect_by_group = ?, views = ?, views_by_group = ?
+                    WHERE agent_post_id = ?
+                """, (json.dumps(effect_by_group), total_views,
+                      json.dumps(views_by_group), post_id))
+
+            # Send inbox notification about post performance
+            truncated = content[:80] + ('...' if len(content) > 80 else '')
+            avg_effect = sum(effect_by_group.values()) / len(effect_by_group) if effect_by_group else 0.0
+            sentiment_word = 'positively' if avg_effect > 0.1 else ('negatively' if avg_effect < -0.1 else 'neutrally')
+            top_groups = sorted(effect_by_group.items(), key=lambda x: abs(x[1]), reverse=True)[:3]
+            top_str = ', '.join(f'{g}: {e:+.1f}' for g, e in top_groups)
+            notif_msg = (f'Your social media post received {total_views:,} views: "{truncated}" '
+                         f'— Received {sentiment_word} overall. Top reactions: {top_str}')
+            add_notification(self.conn, self.current_day, 'social_media', notif_msg)
+
+            # Generate customer replies for viral reactions
+            reply_futures = {}
+            viral_groups = [
+                gid for gid in discovered
+                if abs(effect_by_group.get(gid, 0.0)) >= viral_threshold
+            ]
+            comment_post_ids = []  # Collect post_ids of customer comments on this agent post
+
+            if viral_groups:
+                with ThreadPoolExecutor(max_workers=min(len(viral_groups), 6)) as executor:
+                    for gid in viral_groups:
+                        chars = GROUP_CHARACTERISTICS.get(gid, {})
+                        desc = chars.get('description', gid)
+                        tone = chars.get('social_media_tone', 'neutral')
+                        eff = effect_by_group[gid]
+
+                        future = executor.submit(
+                            generate_customer_reply_to_agent,
+                            bedrock_client, self.config, content,
+                            gid, desc, tone, eff, reply_to_content
+                        )
+                        reply_futures[future] = gid
+
+                    for future in as_completed(reply_futures):
+                        gid = reply_futures[future]
+                        try:
+                            reply_text, in_tok, out_tok = future.result()
+                            eff = effect_by_group[gid]
+
+                            # Add as a regular social media post (visible to agent)
+                            sentiment = 'positive' if eff > 0 else 'negative'
+                            # Pick a random active subscriber from this group
+                            cust = self.conn.execute("""
+                                SELECT c.customer_id FROM customers c
+                                JOIN subscriptions s ON c.customer_id = s.customer_id
+                                WHERE c.group_id = ? AND s.status = 'subscribed' AND s.end_day IS NULL
+                                ORDER BY RANDOM() LIMIT 1
+                            """, (gid,)).fetchone()
+                            customer_id = cust['customer_id'] if cust else 0
+
+                            comment_pid = add_social_media_post(
+                                self.conn, self.current_day, customer_id,
+                                sentiment, reply_text,
+                                likes=self.rng.integers(0, 20),
+                                shares=self.rng.integers(0, 5),
+                                virality_score=abs(eff),
+                                reputation_impact=eff * 0.01,
+                                influence_score=0.5,
+                                reply_to_agent_post_id=post_id
+                            )
+                            comment_post_ids.append(comment_pid)
+
+                            self.customer_simulator._log_cost(
+                                self.current_day, 'agent_social_reply',
+                                in_tok, out_tok, model=social_model
+                            )
+                        except Exception:
+                            pass  # Skip failed replies
+
+            # Store comment post IDs on the agent post
+            if comment_post_ids:
+                try:
+                    self.conn.execute("""
+                        UPDATE agent_social_media_posts
+                        SET comment_post_ids = ?
+                        WHERE agent_post_id = ?
+                    """, (json.dumps(comment_post_ids), post_id))
+                except Exception:
+                    pass  # Column may not exist in old DBs
+
+        self.conn.commit()
+
     def _update_global_state(self, config: dict):
         """Update global state variables based on spending.
 
@@ -3765,11 +4100,12 @@ class Simulator:
         q_shared = get_global_state(self.conn, 'q_shared_bonus', 0.0)
 
         # Dev spending improvement (logarithmic, always applied if spending)
-        improvement = 0.001 * math.log(1 + spend_dev / 1000) if spend_dev > 0 else 0.0
+        # 5× cost scaling: same quality boost as original but requires 5× more dollars
+        improvement = 0.001 * math.log(1 + spend_dev / 5000) if spend_dev > 0 else 0.0
 
         new_q_shared = (
             q_shared + improvement
-            + self.rng.normal(0, self.config.quality_shared_noise_scale)
+            + self._quality_rng.normal(0, self.config.quality_shared_noise_scale)
         )
 
         set_global_state(self.conn, 'q_shared_bonus', new_q_shared)
@@ -3779,7 +4115,7 @@ class Simulator:
             if spend > 0:
                 key = f'q_group_bonus_{group_id}'
                 current = get_global_state(self.conn, key, 0.0)
-                group_improvement = 0.005 * math.log(1 + spend / 1000)
+                group_improvement = 0.005 * math.log(1 + spend / 5000)  # 5× cost scaling (original: spend/1000)
                 set_global_state(self.conn, key, current + group_improvement)
 
     # =========================================================================
@@ -3806,9 +4142,9 @@ class Simulator:
             rt = RESEARCH_TIERS_BY_ID.get(tier_num)
             tier_name = rt.name if rt else f"Tier {tier_num}"
 
-            # Apply quality boost
+            # Apply quality boost (8× multiplier)
             current_q = get_global_state(self.conn, 'q_shared_bonus', 0.0)
-            new_q = current_q + quality_boost
+            new_q = current_q + quality_boost * 8.0
             set_global_state(self.conn, 'q_shared_bonus', new_q)
 
             # Mark completed
@@ -3842,10 +4178,26 @@ class Simulator:
             group_id = row['group_id']
             from_level = row['from_level']
             to_level = row['to_level']
+            is_refresh = (from_level == to_level)
 
             # Set the info level to the target level (supports level jumps)
-            from .database import set_group_info_level
+            # For refresh (same level), this is a no-op but updates last_research_day
+            from .database import set_group_info_level, get_group_parameters
             set_group_info_level(self.conn, group_id, to_level, self.current_day)
+
+            # Snapshot current market conditions at completion time
+            # get_group_insights will use this snapshot instead of live data
+            group_cfg = CUSTOMER_GROUPS.get(group_id)
+            if group_cfg:
+                drifted = get_group_parameters(self.conn, group_id)
+                snap_c_max = drifted['current_c_max_mean'] if drifted else group_cfg.c_max_mean
+                snap_q_min = drifted['current_q_min_mean'] if drifted else group_cfg.q_min_mean
+                snap_market_cap = group_cfg.base_market_cap * (1 + group_cfg.annual_cap_growth_rate * self.current_day / 365.0)
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO group_insight_snapshots
+                        (group_id, snapshot_day, snapshot_c_max, snapshot_q_min, snapshot_market_cap)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (group_id, self.current_day, snap_c_max, snap_q_min, snap_market_cap))
 
             # Mark as completed
             self.conn.execute("""
@@ -3853,11 +4205,23 @@ class Simulator:
                 WHERE id = ?
             """, (row['id'],))
 
-            # Create inbox notification with results
-            add_notification(
-                self.conn, self.current_day, 'group_research_complete',
-                f'Group research complete: {group_id} (research #{row["id"]})'
-            )
+            # Create inbox notification with results (always — both upgrade and refresh)
+            if is_refresh:
+                noise_map = {1: '±65%', 2: '±40%', 3: '±25%', 4: '±15%', 5: '±5%'}
+                add_notification(
+                    self.conn, self.current_day, 'group_research_complete',
+                    f'Group research complete (refresh): {group_id} — Level {to_level} ({noise_map.get(to_level, "?")}). '
+                    f'Market insights updated to day {self.current_day} conditions. '
+                    f'Use get_group_insights(\'{group_id}\') to see updated estimates.'
+                )
+            else:
+                noise_map = {1: '±65%', 2: '±40%', 3: '±25%', 4: '±15%', 5: '±5%'}
+                add_notification(
+                    self.conn, self.current_day, 'group_research_complete',
+                    f'Group research complete: {group_id} — upgraded to Level {to_level} ({noise_map.get(to_level, "?")}). '
+                    f'Market insights updated to day {self.current_day} conditions. '
+                    f'Use get_group_insights(\'{group_id}\') to see updated estimates.'
+                )
 
     # =========================================================================
     # Macroeconomic Cycle Processing
@@ -3949,6 +4313,32 @@ class Simulator:
             multipliers[group_id] = group_mult
 
         return multipliers
+
+    def _get_surge_lead_multiplier(self) -> float:
+        """Get the combined lead multiplier from active demand surge shocks.
+
+        Reads active demand_surge events from the events table. Multiple
+        concurrent surges stack multiplicatively.
+
+        Returns:
+            Multiplier (1.0 = no active surge, >1.0 = surge active)
+        """
+        rows = self.conn.execute("""
+            SELECT details_json FROM events
+            WHERE type = 'demand_surge'
+        """).fetchall()
+
+        multiplier = 1.0
+        for row in rows:
+            details = json.loads(row['details_json'] if isinstance(row['details_json'], str) else row[0])
+            if not details.get('_active', False):
+                continue
+            # Check if surge has expired
+            if 'end_day' in details and self.current_day >= details['end_day']:
+                continue
+            multiplier *= details.get('lead_multiplier', 1.0)
+
+        return multiplier
 
     def get_macro_multiplier(self, group_id: str, dimension: str) -> float:
         """Get the current macro multiplier for a specific group and dimension.
@@ -4083,13 +4473,9 @@ class Simulator:
         direction = 'up' if change > 0 else 'down' if change < 0 else 'flat'
         abs_change = abs(change)
 
-        sub = self.conn.execute("""
-            SELECT c.customer_id FROM subscriptions s
-            JOIN customers c ON s.customer_id = c.customer_id
-            WHERE s.status = 'subscribed' AND s.end_day IS NULL
-            ORDER BY RANDOM() LIMIT 1
-        """).fetchone()
-        if not sub:
+        # Use market_observer for attribution (macro posts are independent of customers)
+        observer_id = getattr(self, '_market_observer_id', None)
+        if not observer_id:
             return []
 
         prompt = f"""Write ONE social media post (Twitter/LinkedIn style, 1-3 sentences) reacting to today's ISM PMI data release.
@@ -4111,7 +4497,7 @@ Requirements:
         return [{
             'macro': True,
             'macro_type': 'publication',
-            'customer_id': sub['customer_id'],
+            'customer_id': observer_id,
             'pmi': pmi,
             'trend': trend,
             'prompt': prompt,
@@ -4164,28 +4550,29 @@ Requirements:
         }
         sentiment = sentiment_map.get(trend, 'neutral')
 
-        # Get random active subscribers to attribute posts to
-        active_subs = self.conn.execute("""
-            SELECT c.customer_id, c.group_id FROM subscriptions s
-            JOIN customers c ON s.customer_id = c.customer_id
-            WHERE s.status = 'subscribed' AND s.end_day IS NULL
-            ORDER BY RANDOM() LIMIT ?
-        """, (n_posts,)).fetchall()
-
-        if not active_subs:
-            return []
-
-        # Build per-post work items (each gets its own LLM call)
-        work_items = []
+        # Pre-draw perspectives from _macro_rng BEFORE any early returns.
+        # This ensures _macro_rng state advances deterministically regardless of
+        # subscriber count (which varies across runs due to agent actions).
         perspectives = [
             "a tech startup CEO", "a SaaS sales executive", "an industry market analyst",
             "a small business owner", "an enterprise IT procurement leader", "a freelance consultant",
             "a CFO at a mid-size company", "a B2B marketing director",
             "a supply chain manager", "a financial advisor", "a tech journalist",
         ]
+        drawn_perspectives = [
+            perspectives[int(self._macro_rng.integers(0, len(perspectives)))]
+            for _ in range(n_posts)
+        ]
+
+        # Use market_observer for attribution (macro posts are independent of customers)
+        observer_id = getattr(self, '_market_observer_id', None)
+        if not observer_id:
+            return []
+
+        # Build per-post work items (each gets its own LLM call)
+        work_items = []
         for i in range(n_posts):
-            sub = active_subs[i % len(active_subs)]
-            perspective = perspectives[int(self._macro_rng.integers(0, len(perspectives)))]
+            perspective = drawn_perspectives[i]
 
             prompt = f"""Write ONE social media post (Twitter/LinkedIn style, 1-3 sentences) from the perspective of {perspective} about the current macroeconomic situation.
 
@@ -4205,7 +4592,7 @@ Requirements:
             work_items.append({
                 'macro': True,
                 'macro_type': 'batch',
-                'customer_id': sub['customer_id'],
+                'customer_id': observer_id,
                 'pmi': pmi,
                 'trend': trend,
                 'prompt': prompt,
@@ -4240,20 +4627,27 @@ Requirements:
             return
 
         # Daily probability: 1/mean_interval (Poisson process)
-        # Use _macro_rng so competitor events are deterministic across runs
+        # Use _competitor_rng (independent of macro social posts) for determinism across runs
         daily_prob = 1.0 / self.config.competitor_event_mean_interval
-        if self._macro_rng.random() >= daily_prob:
+        if self._competitor_rng.random() >= daily_prob:
             return
 
         # --- Trigger a new competitor event ---
 
-        # Sample boost from lognormal (use _macro_rng for determinism)
-        raw_boost = float(self._macro_rng.lognormal(
+        # Sample boost from lognormal (use _competitor_rng for determinism)
+        raw_boost = float(self._competitor_rng.lognormal(
             self.config.competitor_event_boost_mu,
             self.config.competitor_event_boost_sigma
         ))
-        boost = max(self.config.competitor_event_boost_min,
-                    min(raw_boost, self.config.competitor_event_boost_max))
+        base_boost = max(self.config.competitor_event_boost_min,
+                         min(raw_boost, self.config.competitor_event_boost_max))
+
+        # Linear magnitude scaling: 1× at day 0 → 16× at total_days
+        scale_min = getattr(self.config, 'competitor_event_magnitude_scale_min', 1.0)
+        scale_max = getattr(self.config, 'competitor_event_magnitude_scale_max', 16.0)
+        day_frac = min(self.current_day / max(self.config.total_days, 1), 1.0)
+        magnitude_scale = scale_min + (scale_max - scale_min) * day_frac
+        boost = base_boost * magnitude_scale
 
         post_end_day = self.current_day + self.config.competitor_event_post_days
 
@@ -4277,39 +4671,116 @@ Requirements:
             VALUES (?, ?, ?, ?, 1)
         """, (self.current_day, boost, post_end_day, desc))
 
-        # Apply boost to ALL users' q_min and q_max (additive, not multiplicative)
+        # Apply boost to ALL users' q_min and q_max equally (additive, no caps/floors)
         # Shifts the entire participation curve upward — users demand more quality
 
-        # Group parameters (q_min and q_max means)
+        # Group parameters (both q_min and q_max shift by same amount)
         self.conn.execute("""
             UPDATE group_parameters
             SET current_q_min_mean = current_q_min_mean + ?,
-                current_q_max_mean = MIN(current_q_max_mean + ?, 1.0)
+                current_q_max_mean = current_q_max_mean + ?
         """, (boost, boost))
 
-        # Individual subscribers — boost both q_min and q_max
+        # Individual subscribers — boost both q_min and q_max equally
         self.conn.execute("""
-            UPDATE customer_state SET current_q_min = CASE
-                WHEN current_q_min IS NOT NULL THEN current_q_min + ?
-                ELSE NULL
-            END
+            UPDATE customer_state SET
+                current_q_min = CASE WHEN current_q_min IS NOT NULL THEN current_q_min + ? ELSE NULL END,
+                current_q_max = CASE WHEN current_q_max IS NOT NULL THEN current_q_max + ? ELSE NULL END
             WHERE customer_id IN (
                 SELECT s.customer_id FROM subscriptions s
                 WHERE s.status = 'subscribed' AND s.end_day IS NULL
             )
-        """, (boost,))
-        self.conn.execute("""
-            UPDATE customer_state SET current_q_max = CASE
-                WHEN current_q_max IS NOT NULL THEN MIN(current_q_max + ?, 1.0)
-                ELSE NULL
-            END
-            WHERE customer_id IN (
-                SELECT s.customer_id FROM subscriptions s
-                WHERE s.status = 'subscribed' AND s.end_day IS NULL
-            )
-        """, (boost,))
+        """, (boost, boost))
 
         # No notification for competitor events (agent can observe via social media / quality metrics)
+
+    def _generate_competitor_event_posts(self):
+        """Generate social media posts for active competitor events.
+
+        These posts are independent of subscribers — they represent external market
+        buzz about competitor product launches. Uses template content, no LLM needed.
+        Posts are attributed to the market_observer pseudo-customer.
+        """
+        from .database import add_social_media_post
+
+        if not getattr(self, '_market_observer_id', None):
+            return
+
+        active_events = self.conn.execute("""
+            SELECT event_id, boost_amount, description FROM competitor_events
+            WHERE post_end_day >= ?
+        """, (self.current_day,)).fetchall()
+
+        if not active_events:
+            return
+
+        posts_per_day = self.config.competitor_event_posts_per_day
+        event = active_events[0]  # Use most recent event for context
+        boost = event['boost_amount']
+
+        # Template pool — varied perspectives on competitor launches
+        templates_by_severity = {
+            'minor': [
+                "Interesting update from {competitor}. Nothing game-changing but shows they're still iterating.",
+                "Saw that {competitor} pushed a small product refresh. Incremental but worth noting.",
+                "{competitor} quietly shipped some improvements. Market stays competitive.",
+                "Minor release from {competitor} today. The SaaS space never stops moving.",
+                "Just tested {competitor}'s latest update. Some nice polish but nothing that changes the landscape.",
+            ],
+            'moderate': [
+                "{competitor} just dropped a solid feature upgrade. This puts pressure on the whole space.",
+                "Big feature launch from {competitor}. Companies should take note — the bar just moved up.",
+                "Really impressed by {competitor}'s new release. The competition is heating up in this market.",
+                "{competitor} is making moves. Their latest upgrade addresses some real pain points in the industry.",
+                "The new {competitor} features are turning heads. Quality expectations in this space are rising.",
+            ],
+            'major': [
+                "{competitor} just launched a major overhaul. This redefines what customers expect from tools like these.",
+                "Game-changing release from {competitor}. If you're in this space, you need to up your game ASAP.",
+                "The industry just shifted. {competitor}'s new product is raising the bar significantly.",
+                "{competitor}'s major product launch is impressive. Market expectations just jumped considerably.",
+                "Just saw {competitor}'s big announcement. This is going to force everyone to innovate faster.",
+            ],
+            'transformative': [
+                "{competitor} just made a breakthrough launch that redefines the entire market. Everyone needs to respond.",
+                "This is a watershed moment. {competitor}'s new product is leapfrogging the competition by a wide margin.",
+                "Incredible product launch from {competitor}. The quality bar in this industry just jumped massively.",
+                "{competitor} changed the game today. If competitors don't respond fast, they'll lose significant share.",
+                "Market disruption alert: {competitor}'s breakthrough launch sets a new standard. Everyone else is playing catch-up.",
+            ],
+        }
+
+        if boost < 0.03:
+            severity = 'minor'
+        elif boost < 0.10:
+            severity = 'moderate'
+        elif boost < 0.20:
+            severity = 'major'
+        else:
+            severity = 'transformative'
+
+        templates = templates_by_severity[severity]
+        competitor_names = ['RivalTech', 'NexGen Solutions', 'CloudPeak', 'QuantumEdge', 'ApexSaaS']
+
+        for i in range(posts_per_day):
+            template = templates[int(self._competitor_rng.integers(0, len(templates)))]
+            competitor_name = competitor_names[int(self._competitor_rng.integers(0, len(competitor_names)))]
+            content = template.format(competitor=competitor_name)
+
+            # Competitor posts are external market commentary — always neutral
+            sentiment = 'neutral'
+
+            # Views scale with severity
+            base_views = {'minor': 50, 'moderate': 200, 'major': 500, 'transformative': 1000}
+            views = int(base_views[severity] * (1 + self._competitor_rng.random()))
+            likes = int(views * 0.05 * (1 + self._competitor_rng.random()))
+            shares = int(views * 0.02 * (1 + self._competitor_rng.random()))
+
+            add_social_media_post(
+                self.conn, self.current_day, self._market_observer_id,
+                sentiment, content, likes=likes, shares=shares,
+                virality_score=0.0, reputation_impact=0.0, influence_score=0.0,
+            )
 
     # =========================================================================
     # Enterprise Negotiation Processing
@@ -4569,6 +5040,8 @@ Requirements:
             """, relationship_updates)
 
         if rep_updates:
+            # Floor reputation to 1e-3 (matches set_group_reputation)
+            rep_updates = [(g, max(r, 1e-3), d, reason) for g, r, d, reason in rep_updates]
             self.conn.executemany("""
                 INSERT OR REPLACE INTO group_reputation (group_id, reputation, last_updated_day)
                 VALUES (?, ?, ?)
@@ -5591,11 +6064,135 @@ Requirements:
 
         return total_costs
 
+    def _record_hidden_snapshots(self, config: dict):
+        """Record hidden daily snapshots for post-run analysis.
+
+        Two tables:
+        1. _hidden_group_params_history: group spawning params + reputation + awareness
+        2. _hidden_quality_snapshot: quality components per group × plan
+        """
+        day = self.current_day
+
+        # --- Group parameters + reputation + awareness ---
+        all_params = get_all_group_parameters(self.conn)
+        all_reps = self.conn.execute(
+            "SELECT group_id, reputation FROM group_reputation"
+        ).fetchall()
+        rep_map = {r['group_id']: r['reputation'] for r in all_reps}
+        all_aware = self.conn.execute(
+            "SELECT group_id, awareness FROM group_awareness"
+        ).fetchall()
+        aware_map = {r['group_id']: r['awareness'] for r in all_aware}
+
+        param_rows = []
+        for group_id, gp in all_params.items():
+            param_rows.append((
+                day, group_id,
+                gp['current_c_max_mean'], gp['current_q_min_mean'],
+                gp['current_q_max_mean'], gp['current_steepness_left_factor'],
+                rep_map.get(group_id, 0.5), aware_map.get(group_id, 0.0),
+            ))
+        if param_rows:
+            self.conn.executemany("""
+                INSERT OR REPLACE INTO _hidden_group_params_history
+                (day, group_id, current_c_max_mean, current_q_min_mean,
+                 current_q_max_mean, current_steepness_left_factor, reputation, awareness)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, param_rows)
+
+        # --- Quality components per group × plan ---
+        # Read fresh values (not cached) since _update_global_state() ran mid-step
+        base_pq = self.config.base_product_quality
+        q_shared_bonus = get_global_state(self.conn, 'q_shared_bonus', 0.0)
+        q_group_bonuses = {}
+        for row in self.conn.execute(
+            "SELECT key, value FROM global_state WHERE key LIKE 'q_group_bonus_%'"
+        ).fetchall():
+            gid = row['key'][len('q_group_bonus_'):]
+            q_group_bonuses[gid] = float(row['value'])
+
+        quality_rows = []
+        for group_id in all_params:
+            q_group = q_group_bonuses.get(group_id, 0.0)
+            for plan in ('A', 'B', 'C'):
+                tier = config.get(f'tier_{plan}', 4)
+                multiplier = self._cached_tier_multiplier_per_plan.get(plan, 1.0)
+                delivered = (base_pq + q_shared_bonus + q_group) * multiplier
+                quality_rows.append((
+                    day, group_id, plan,
+                    base_pq, q_shared_bonus, q_group,
+                    tier, multiplier, delivered,
+                ))
+        if quality_rows:
+            self.conn.executemany("""
+                INSERT OR REPLACE INTO _hidden_quality_snapshot
+                (day, group_id, plan, base_product_quality, q_shared_bonus,
+                 q_group_bonus, tier, tier_multiplier, delivered_quality)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, quality_rows)
+
+        # --- Satisfaction snapshot per group ---
+        sat_rows = self.conn.execute("""
+            SELECT c.group_id,
+                   COUNT(*) as active_subs,
+                   AVG(cs.satisfaction) as avg_sat,
+                   AVG(cs.relationship) as avg_rel,
+                   MIN(cs.satisfaction) as min_sat,
+                   MAX(cs.satisfaction) as max_sat
+            FROM customer_state cs
+            JOIN customers c ON cs.customer_id = c.customer_id
+            JOIN subscriptions s ON s.customer_id = c.customer_id AND s.status = 'subscribed'
+            GROUP BY c.group_id
+        """).fetchall()
+
+        # Count churned today and new today
+        churned_map = {}
+        new_map = {}
+        for row in self.conn.execute(
+            "SELECT c.group_id, COUNT(*) as cnt FROM subscriptions s "
+            "JOIN customers c ON s.customer_id = c.customer_id "
+            "WHERE s.end_day = ? GROUP BY c.group_id", (day,)
+        ).fetchall():
+            churned_map[row['group_id']] = row['cnt']
+        for row in self.conn.execute(
+            "SELECT group_id, COUNT(*) as cnt FROM customers "
+            "WHERE created_day = ? GROUP BY group_id", (day,)
+        ).fetchall():
+            new_map[row['group_id']] = row['cnt']
+
+        sat_snapshot_rows = []
+        for row in sat_rows:
+            gid = row['group_id']
+            sat_snapshot_rows.append((
+                day, gid, row['active_subs'],
+                row['avg_sat'], row['avg_rel'],
+                row['min_sat'], row['max_sat'],
+                churned_map.get(gid, 0), new_map.get(gid, 0),
+            ))
+        if sat_snapshot_rows:
+            self.conn.executemany("""
+                INSERT OR REPLACE INTO _hidden_satisfaction_snapshot
+                (day, group_id, active_subscribers, avg_satisfaction,
+                 avg_relationship, min_satisfaction, max_satisfaction,
+                 churned_today, new_today)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, sat_snapshot_rows)
+
     def step_day(self) -> DayResult:
         """Simulate one day and return results."""
         import time as _time
         _step_start = _time.monotonic()
         _timings = {}
+
+        # Lazy initialization for _group_rngs (handles resume from checkpoint)
+        if not hasattr(self, '_group_rngs'):
+            from numpy.random import Generator, PCG64
+            from saas_bench.config import CUSTOMER_GROUPS
+            self._group_rngs = {}
+            for gid in CUSTOMER_GROUPS:
+                group_seed = int(self.rng.integers(0, 2**63))
+                gid_hash = hash(gid) & 0xFFFFFFFF
+                self._group_rngs[gid] = Generator(PCG64(group_seed ^ gid_hash))
 
         self.current_day += 1
         config = self.get_current_config()
@@ -5640,6 +6237,9 @@ Requirements:
 
         # V3: Process competitor events (may raise expected quality for all users)
         self._process_competitor_events(config)
+
+        # Generate competitor event social media posts (independent of subscribers)
+        self._generate_competitor_event_posts()
 
         # Update global state (q_shared)
         self._update_global_state(config)
@@ -5699,6 +6299,11 @@ Requirements:
         self._collect_social_posts_async(social_posts_async)
         _timings['social_posts'] = _t_social_submit + (_time.monotonic() - _t0_collect)
 
+        # Social media — PHASE 3: judge agent posts + generate customer replies for viral ones
+        _t0 = _time.monotonic()
+        self._process_agent_social_posts(config)
+        _timings['agent_social_posts'] = _time.monotonic() - _t0
+
         # Check cash constraint - GAME OVER IMMEDIATELY if cash < 0
         cash = get_cash(self.conn)
         if cash < 0:
@@ -5729,6 +6334,9 @@ Requirements:
             WHERE s.status = 'subscribed' AND s.start_day = ?
               AND c.customer_type = 'large'
         """, (self.current_day,)).fetchone()[0]
+
+        # === Hidden snapshots for post-run analysis (invisible to agent) ===
+        self._record_hidden_snapshots(config)
 
         self.conn.commit()
 

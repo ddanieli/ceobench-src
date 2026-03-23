@@ -266,7 +266,7 @@ class SaaSBenchMCPServer:
         if self.tools is None:
             agent_workspace = self.workspace_dir / 'agent'
             agent_workspace.mkdir(parents=True, exist_ok=True)
-            self.tools = AgentTools(self.conn, self.current_day, agent_workspace, self.db_path, self.rng)
+            self.tools = AgentTools(self.conn, self.current_day, agent_workspace, self.db_path, self.rng, seed=self.seed)
 
         # Initialize simulator if not already done
         # NOTE: The runner (run_test.py) already calls simulator.initialize() to set up Day 1.

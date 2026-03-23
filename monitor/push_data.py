@@ -19,26 +19,37 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-RUNS_DIR = Path(__file__).parent.parent / "bash_agent_runs"
+# Add project root to path so we can import db_protection
+_PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT / "src"))
+
+RUNS_DIR = _PROJECT_ROOT / "bash_agent_runs"
 OUTPUT_FILE = Path(__file__).parent / "data.json"
 MODAL_VOLUME = "bossbench-monitor-data"
 
+
+def _open_run_db(run_dir: Path) -> sqlite3.Connection | None:
+    """Open the run's obfuscated .nmdb database into an in-memory connection.
+
+    Returns an open sqlite3.Connection or None if not found.
+    """
+    nmdb_path = run_dir / "world.nmdb"
+    if not nmdb_path.exists():
+        return None
+    try:
+        from saas_bench.db_protection import load_session_db
+        return load_session_db(nmdb_path)
+    except Exception:
+        return None
+
 # Run registry
 RUN_REGISTRY = {
-    # With-VC runs (main branch, log-network-effects)
-    "078e3123": {"label": "GLM-5 3yr #1 (VC)", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "2cd83517": {"label": "GLM-5 3yr #2 (VC)", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "62845a0a": {"label": "GLM-5 3yr #3 (VC)", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "e86abe30": {"label": "GLM-5 3yr #4 (VC)", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "f8acc73e": {"label": "GLM-5 3yr #5 (VC)", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    # No-VC runs (no-vc-dividends branch, cash-only objective)
-    "d92c74bf": {"label": "GLM-5 3yr no-VC #1", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "a46195a0": {"label": "GLM-5 3yr no-VC #2", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "0b3f7e05": {"label": "GLM-5 3yr no-VC #3", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "710e4648": {"label": "GLM-5 3yr no-VC #4", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    "cc3dfa22": {"label": "GLM-5 3yr no-VC #5", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
-    # Sonnet 4.6 no-VC run (Bedrock, with cache_control fix)
-    "d12ea50c": {"label": "Sonnet 4.6 no-VC", "model": "claude-sonnet-4-6", "seed": 42, "days": 1095},
+    "46d72796": {"label": "GLM-5 v3 run 1", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
+    "ed94e7fc": {"label": "GLM-5 v3 run 2", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
+    "a089097d": {"label": "GLM-5 v3 run 3", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
+    "0c4b4698": {"label": "GLM-5 v3 run 4", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
+    "4107d983": {"label": "GLM-5 v3 run 5", "model": "GLM-5-FP8", "seed": 42, "days": 1095},
+    "6ab77e7f": {"label": "Sonnet 4.6 Bedrock run 1", "model": "claude-sonnet-4-6", "seed": 42, "days": 1095},
 }
 
 
@@ -55,12 +66,10 @@ def get_run_ids():
 
 def get_founder_dividends_from_db(run_dir: Path) -> float:
     """Quick SQLite query for cumulative founder dividends. Returns 0 if DB locked."""
-    db_path = run_dir / "world.db"
-    if not db_path.exists():
+    conn = _open_run_db(run_dir)
+    if not conn:
         return 0
     try:
-        conn = sqlite3.connect(str(db_path), timeout=2)
-        conn.execute("PRAGMA busy_timeout = 2000")
         row = conn.execute("SELECT COALESCE(SUM(founder_payout), 0) FROM dividends").fetchone()
         conn.close()
         return row[0] if row else 0
@@ -70,12 +79,10 @@ def get_founder_dividends_from_db(run_dir: Path) -> float:
 
 def get_dividend_series_from_db(run_dir: Path, max_points: int = 200) -> list:
     """Cumulative founder dividends by day. Returns list of {day, dividends}."""
-    db_path = run_dir / "world.db"
-    if not db_path.exists():
+    conn = _open_run_db(run_dir)
+    if not conn:
         return []
     try:
-        conn = sqlite3.connect(str(db_path), timeout=2)
-        conn.execute("PRAGMA busy_timeout = 2000")
         rows = conn.execute(
             "SELECT day, founder_payout FROM dividends ORDER BY day"
         ).fetchall()
@@ -93,6 +100,231 @@ def get_dividend_series_from_db(run_dir: Path, max_points: int = 200) -> list:
             step = len(series) // max_points
             series = [s for i, s in enumerate(series) if i % step == 0 or i == len(series) - 1]
         return series
+    except Exception:
+        return []
+
+
+def get_reputation_series_from_db(run_dir: Path, max_points: int = 200) -> list:
+    """Daily reputation per group from hidden snapshot table. Returns list of {day, group_id, reputation}."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT day, group_id, reputation FROM _hidden_group_params_history ORDER BY day, group_id"
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return []
+        series = [{"day": r[0], "group_id": r[1], "reputation": round(r[2], 6)} for r in rows]
+        # Downsample if too many points (per-group, so total rows = days × groups)
+        unique_days = sorted(set(r[0] for r in rows))
+        if len(unique_days) > max_points:
+            step = len(unique_days) // max_points
+            keep_days = set(d for i, d in enumerate(unique_days) if i % step == 0 or i == len(unique_days) - 1)
+            series = [s for s in series if s["day"] in keep_days]
+        return series
+    except Exception:
+        return []
+
+
+def get_quality_series_from_db(run_dir: Path, max_points: int = 200) -> list:
+    """Quality per group × plan over time from _hidden_quality_snapshot."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT day, group_id, plan, delivered_quality FROM _hidden_quality_snapshot ORDER BY day, group_id, plan"
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return []
+        series = [{"day": r[0], "group_id": r[1], "plan": r[2], "quality": round(r[3], 4)} for r in rows]
+        unique_days = sorted(set(r[0] for r in rows))
+        if len(unique_days) > max_points:
+            step = len(unique_days) // max_points
+            keep_days = set(d for i, d in enumerate(unique_days) if i % step == 0 or i == len(unique_days) - 1)
+            series = [s for s in series if s["day"] in keep_days]
+        return series
+    except Exception:
+        return []
+
+
+def get_qmin_series_from_db(run_dir: Path, max_points: int = 200) -> list:
+    """Q_min per group over time from _hidden_group_params_history."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT day, group_id, current_q_min_mean FROM _hidden_group_params_history ORDER BY day, group_id"
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return []
+        series = [{"day": r[0], "group_id": r[1], "q_min": round(r[2], 4)} for r in rows]
+        unique_days = sorted(set(r[0] for r in rows))
+        if len(unique_days) > max_points:
+            step = len(unique_days) // max_points
+            keep_days = set(d for i, d in enumerate(unique_days) if i % step == 0 or i == len(unique_days) - 1)
+            series = [s for s in series if s["day"] in keep_days]
+        return series
+    except Exception:
+        return []
+
+
+def get_discovered_group_ids(run_dir: Path) -> set:
+    """Return set of discovered group_ids (info_level >= 1)."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return set()
+    try:
+        rows = conn.execute(
+            "SELECT group_id FROM group_info_levels WHERE info_level >= 1"
+        ).fetchall()
+        conn.close()
+        return {r[0] for r in rows}
+    except Exception:
+        return set()
+
+
+def get_seat_series_from_db(run_dir: Path, max_points: int = 200) -> list:
+    """Individual subs + enterprise seats per day from _hidden_group_params_history days."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        # Get all days from group_params_history as reference
+        days = conn.execute(
+            "SELECT DISTINCT day FROM _hidden_group_params_history ORDER BY day"
+        ).fetchall()
+        if not days:
+            conn.close()
+            return []
+        series = []
+        for (day,) in days:
+            row = conn.execute(
+                """SELECT
+                    COALESCE(SUM(CASE WHEN seat_count = 1 THEN 1 ELSE 0 END), 0) as individual,
+                    COALESCE(SUM(CASE WHEN seat_count > 1 THEN seat_count ELSE 0 END), 0) as enterprise_seats
+                FROM subscriptions
+                WHERE status = 'subscribed' AND start_day <= ? AND (end_day IS NULL OR end_day > ?)""",
+                (day, day)
+            ).fetchone()
+            series.append({"day": day, "individual": row[0], "enterprise_seats": row[1]})
+        conn.close()
+        if len(series) > max_points:
+            step = len(series) // max_points
+            series = [s for i, s in enumerate(series) if i % step == 0 or i == len(series) - 1]
+        return series
+    except Exception:
+        return []
+
+
+def get_group_discovery_from_db(run_dir: Path) -> list:
+    """Group discovery status from group_info_levels."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT group_id, info_level, is_discoverable, discovered_day FROM group_info_levels ORDER BY group_id"
+        ).fetchall()
+        conn.close()
+        return [{"group_id": r[0], "info_level": r[1], "is_discoverable": r[2], "discovered_day": r[3]} for r in rows]
+    except Exception:
+        return []
+
+
+def get_customer_social_posts_from_db(run_dir: Path, limit: int = 50) -> list:
+    """Last N customer social media posts."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        rows = conn.execute(
+            """SELECT p.post_id, p.day, p.customer_id, c.group_id, p.sentiment, p.content,
+                      p.likes, p.shares, p.reply_to_agent_post_id
+               FROM social_media_posts p
+               LEFT JOIN customers c ON p.customer_id = c.customer_id
+               ORDER BY p.post_id DESC LIMIT ?""", (limit,)
+        ).fetchall()
+        conn.close()
+        def _to_int(v):
+            """Convert bytes/numpy types to plain int for JSON serialization."""
+            if isinstance(v, bytes):
+                return int.from_bytes(v, 'little') if v else 0
+            if v is None:
+                return 0
+            return int(v)
+        return [{"post_id": r[0], "day": r[1], "customer_id": r[2], "group_id": r[3],
+                 "sentiment": r[4], "content": r[5], "likes": _to_int(r[6]), "shares": _to_int(r[7]),
+                 "reply_to_agent_post_id": r[8]} for r in rows]
+    except Exception:
+        return []
+
+
+def get_agent_social_posts_from_db(run_dir: Path, limit: int = 50) -> list:
+    """Last N agent social media posts with scores, views, and customer replies."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        # Check if reasoning_by_group column exists
+        col_names = [c[1] for c in conn.execute("PRAGMA table_info(agent_social_media_posts)").fetchall()]
+        has_reasoning = 'reasoning_by_group' in col_names
+        if has_reasoning:
+            posts = conn.execute(
+                """SELECT agent_post_id, day, content, reply_to_post_id,
+                          effect_by_group, views, views_by_group, reasoning_by_group
+                   FROM agent_social_media_posts ORDER BY agent_post_id DESC LIMIT ?""", (limit,)
+            ).fetchall()
+        else:
+            posts = conn.execute(
+                """SELECT agent_post_id, day, content, reply_to_post_id,
+                          effect_by_group, views, views_by_group
+                   FROM agent_social_media_posts ORDER BY agent_post_id DESC LIMIT ?""", (limit,)
+            ).fetchall()
+        result = []
+        for p in posts:
+            post_id = p[0]
+            effects = {}
+            views_by_group = {}
+            reasoning = {}
+            try:
+                effects = json.loads(p[4]) if p[4] else {}
+            except Exception:
+                pass
+            try:
+                views_by_group = json.loads(p[6]) if p[6] else {}
+            except Exception:
+                pass
+            if has_reasoning:
+                try:
+                    reasoning = json.loads(p[7]) if p[7] else {}
+                except Exception:
+                    pass
+            # Get customer replies to this agent post
+            replies = conn.execute(
+                """SELECT s.post_id, s.day, s.customer_id, c.group_id, s.sentiment, s.content
+                   FROM social_media_posts s
+                   LEFT JOIN customers c ON s.customer_id = c.customer_id
+                   WHERE s.reply_to_agent_post_id = ?
+                   ORDER BY s.post_id""", (post_id,)
+            ).fetchall()
+            reply_list = [{"post_id": r[0], "day": r[1], "customer_id": r[2], "group_id": r[3],
+                           "sentiment": r[4], "content": r[5]} for r in replies]
+            mults = {}  # Per-post multiplier removed; overall next-day multiplier is at run level
+            result.append({
+                "agent_post_id": post_id, "day": p[1], "content": p[2],
+                "reply_to_post_id": p[3], "effect_by_group": effects,
+                "views": p[5], "views_by_group": views_by_group,
+                "reasoning_by_group": reasoning,
+                "replies": reply_list, "multipliers": mults,
+            })
+        conn.close()
+        return result
     except Exception:
         return []
 
@@ -166,9 +398,9 @@ def get_run_data(run_id: str) -> dict:
         data["current_day"] = None
         data["agent_turns"] = None
 
-    # Stats from JSONL run log (lock-free — append-only files)
-    # The run JSONL has daily_snapshot entries with cash, mrr, subscribers, etc.
+    # Stats: try JSONL run log first, fall back to DB
     run_jsonl = run_dir / "logs" / f"run_{run_id}.jsonl"
+    got_stats_from_jsonl = False
     if run_jsonl.exists():
         try:
             snapshots = []
@@ -184,12 +416,12 @@ def get_run_data(run_id: str) -> dict:
                         continue
 
             if snapshots:
+                got_stats_from_jsonl = True
                 latest = snapshots[-1]
                 data["cash"] = latest.get("cash", 0)
                 data["subscribers"] = latest.get("subscribers", 0)
                 data["mrr"] = latest.get("mrr", 0)
 
-                # Timeseries from snapshots (sample every N for large runs)
                 step = max(1, len(snapshots) // 200)
                 data["cash_series"] = [
                     {"day": s["day"], "cash": round(s.get("cash", 0), 2)}
@@ -204,9 +436,114 @@ def get_run_data(run_id: str) -> dict:
         except Exception as e:
             data["db_error"] = str(e)
 
+    # Fallback: get cash/subs/MRR from DB when JSONL not available
+    if not got_stats_from_jsonl:
+        conn = _open_run_db(run_dir)
+        if conn:
+            # Each query in its own try/except so one failure doesn't block others
+            try:
+                row = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM ledger").fetchone()
+                data["cash"] = round(row[0], 2) if row else 0
+            except Exception as e:
+                data.setdefault("db_errors", []).append(f"cash: {e}")
+
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM subscriptions WHERE status='subscribed' AND end_day IS NULL"
+                ).fetchone()
+                data["subscribers"] = row[0] if row else 0
+            except Exception as e:
+                data.setdefault("db_errors", []).append(f"subscribers: {e}")
+
+            try:
+                row = conn.execute("""
+                    SELECT COALESCE(SUM(s.effective_price * s.seat_count), 0)
+                    FROM subscriptions s
+                    WHERE s.status='subscribed' AND s.end_day IS NULL
+                """).fetchone()
+                data["mrr"] = round(row[0], 2) if row else 0
+            except Exception as e:
+                data.setdefault("db_errors", []).append(f"mrr: {e}")
+
+            try:
+                rows = conn.execute("""
+                    SELECT day, SUM(amount) as daily_total
+                    FROM ledger GROUP BY day ORDER BY day
+                """).fetchall()
+                if rows:
+                    cash_series = []
+                    cumulative = 0.0
+                    for day, daily_total in rows:
+                        cumulative += daily_total
+                        cash_series.append({"day": day, "cash": round(cumulative, 2)})
+                    if len(cash_series) > 200:
+                        step = len(cash_series) // 200
+                        cash_series = [s for i, s in enumerate(cash_series) if i % step == 0 or i == len(cash_series) - 1]
+                    data["cash_series"] = cash_series
+            except Exception as e:
+                data.setdefault("db_errors", []).append(f"cash_series: {e}")
+
+            try:
+                hist_days = conn.execute(
+                    "SELECT DISTINCT day FROM _hidden_group_params_history ORDER BY day"
+                ).fetchall()
+                sub_series = []
+                for (day,) in hist_days:
+                    row = conn.execute(
+                        "SELECT COUNT(*) FROM subscriptions WHERE status='subscribed' AND start_day <= ? AND (end_day IS NULL OR end_day > ?)",
+                        (day, day)
+                    ).fetchone()
+                    sub_series.append({"day": day, "subscribers": row[0]})
+                if len(sub_series) > 200:
+                    step = len(sub_series) // 200
+                    sub_series = [s for i, s in enumerate(sub_series) if i % step == 0 or i == len(sub_series) - 1]
+                data["sub_series"] = sub_series
+            except Exception as e:
+                data.setdefault("db_errors", []).append(f"sub_series: {e}")
+
+            conn.close()
+
     # Founder dividends from SQLite DB (small table, quick query)
     data["founder_dividends"] = get_founder_dividends_from_db(run_dir)
     data["dividend_series"] = get_dividend_series_from_db(run_dir)
+
+    # Discovered groups — used to filter charts
+    discovered = get_discovered_group_ids(run_dir)
+
+    # Per-group reputation timeseries (discovered only)
+    data["reputation_series"] = [s for s in get_reputation_series_from_db(run_dir) if s["group_id"] in discovered]
+
+    # Quality per group/plan over time (discovered only)
+    data["quality_series"] = [s for s in get_quality_series_from_db(run_dir) if s["group_id"] in discovered]
+
+    # Q_min per group over time (discovered only)
+    data["qmin_series"] = [s for s in get_qmin_series_from_db(run_dir) if s["group_id"] in discovered]
+
+    # Seat series (individual + enterprise)
+    data["seat_series"] = get_seat_series_from_db(run_dir)
+
+    # Group discovery status
+    data["group_discovery"] = get_group_discovery_from_db(run_dir)
+
+    # Customer social media posts (last 50)
+    data["customer_social_posts"] = get_customer_social_posts_from_db(run_dir)
+
+    # Agent social media posts with scores, views, multipliers, replies (last 50)
+    data["agent_social_posts"] = get_agent_social_posts_from_db(run_dir)
+
+    # Next-day overall lead multiplier per group (from social media effects)
+    try:
+        from saas_bench.database import compute_social_media_multiplier
+        sm_conn = _open_run_db(run_dir)
+        if sm_conn and data.get("current_day"):
+            next_day = data["current_day"] + 1
+            next_day_mults = {}
+            for gid in discovered:
+                next_day_mults[gid] = round(compute_social_media_multiplier(sm_conn, next_day, gid), 4)
+            data["next_day_social_multiplier"] = next_day_mults
+            sm_conn.close()
+    except Exception:
+        pass
 
     # Recent actions (last 100)
     tr_path = run_dir / "logs" / f"tool_results_{run_id}.jsonl"

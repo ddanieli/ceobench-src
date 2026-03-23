@@ -85,7 +85,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .chart-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
 .chart-box h3{font-size:13px;color:var(--text2);margin-bottom:8px}
 .chart-box canvas{max-height:220px}
-.tabs{display:flex;gap:0}
+.tabs{display:flex;gap:0;flex-wrap:wrap}
 .tab{padding:8px 20px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--border);border-bottom:none;background:var(--bg);color:var(--text2);border-radius:6px 6px 0 0}
 .tab.active{background:var(--surface);color:var(--text)}
 .tab-content{background:var(--surface);border:1px solid var(--border);border-radius:0 8px 8px 8px;display:none}
@@ -93,7 +93,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .action-list{max-height:600px;overflow-y:auto}
 .action-item{padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px}
 .action-item:last-child{border-bottom:none}
-.action-item .action-header{display:flex;gap:12px;align-items:baseline;margin-bottom:4px}
+.action-item .action-header{display:flex;gap:12px;align-items:baseline;margin-bottom:4px;flex-wrap:wrap}
 .day-badge{background:var(--accent);color:#000;font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px}
 .turn-badge{background:var(--border);font-size:11px;padding:1px 6px;border-radius:3px}
 .tool-name{font-weight:600;color:var(--purple)}
@@ -115,6 +115,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .compare-table th{color:var(--text2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
 .compare-table td.num{text-align:right;font-family:'SF Mono',Monaco,Consolas,monospace}
 .compare-table tr:hover{background:rgba(88,166,255,.05)}
+.social-post{padding:12px 16px;border-bottom:1px solid var(--border)}
+.social-post:last-child{border-bottom:none}
+.social-post .post-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text2);margin-bottom:4px;flex-wrap:wrap}
+.social-post .post-content{font-size:13px;line-height:1.5}
+.social-post .post-reply{margin-top:6px;margin-left:16px;padding:8px 12px;background:var(--bg);border-radius:6px;border-left:3px solid var(--border);font-size:12px}
+.social-post .post-reply.positive{border-left-color:var(--green)}
+.social-post .post-reply.negative{border-left-color:var(--red)}
+.score-badge{display:inline-block;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;font-family:'SF Mono',Monaco,Consolas,monospace}
+.score-positive{background:rgba(63,185,80,.2);color:var(--green)}
+.score-negative{background:rgba(248,81,73,.2);color:var(--red)}
+.score-neutral{background:var(--border);color:var(--text2)}
+.discovery-table{width:100%;border-collapse:collapse;font-size:13px}
+.discovery-table th,.discovery-table td{padding:8px 14px;text-align:left;border-bottom:1px solid var(--border)}
+.discovery-table th{color:var(--text2);font-weight:500;font-size:12px;text-transform:uppercase}
+.disc-yes{color:var(--green);font-weight:600}
+.disc-no{color:var(--text2)}
 @media(max-width:800px){.charts{grid-template-columns:1fr}}
 </style>
 </head>
@@ -144,31 +160,54 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <button onclick="selectRun('')" style="background:var(--surface);border:1px solid var(--border);color:var(--accent);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:13px">&#8592; Back</button>
       <h2 id="detailTitle" style="margin:0"></h2>
     </div>
-    <div class="overview" id="detailStats" style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px"></div>
+    <div class="overview" id="detailStats" style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-bottom:16px"></div>
+
+    <!-- Group Discovery Status -->
+    <div id="discoverySection" style="margin-bottom:20px"></div>
+
+    <!-- Core charts: Cash, Subscribers -->
     <div class="charts">
       <div class="chart-box"><h3>Cash Balance</h3><canvas id="cashChart"></canvas></div>
-      <div class="chart-box"><h3>Subscribers</h3><canvas id="subsChart"></canvas></div>
+      <div class="chart-box"><h3>Individual Subs + Enterprise Seats</h3><canvas id="subsChart"></canvas></div>
     </div>
+    <!-- Dividends + Timing -->
     <div class="charts">
       <div class="chart-box"><h3>Founder Dividends (Cumulative)</h3><canvas id="divChart"></canvas></div>
       <div class="chart-box" id="timingChartBox"><h3>Day Time Breakdown (s)</h3><canvas id="timingChart"></canvas></div>
     </div>
+    <!-- Reputation + Q_min -->
+    <div class="charts">
+      <div class="chart-box"><h3>Reputation by Group</h3><canvas id="reputationChart"></canvas></div>
+      <div class="chart-box"><h3>Q_min by Group</h3><canvas id="qminChart"></canvas></div>
+    </div>
+    <!-- Quality -->
+    <div class="charts">
+      <div class="chart-box" style="grid-column:1/-1"><h3>Delivered Quality by Group × Plan</h3><canvas id="qualityChart" style="max-height:280px"></canvas></div>
+    </div>
+    <!-- Time breakdown bars -->
     <div class="charts">
       <div class="chart-box"><h3>Time Breakdown</h3><div id="timingBars" style="padding:8px 0"></div></div>
     </div>
+
+    <!-- Tabs -->
     <div class="tabs">
       <div class="tab active" onclick="switchTab('actions')">Tool Calls</div>
       <div class="tab" onclick="switchTab('responses')">LLM Responses</div>
       <div class="tab" onclick="switchTab('timing')">Timing</div>
+      <div class="tab" onclick="switchTab('agentPosts')">Agent Posts</div>
+      <div class="tab" onclick="switchTab('customerPosts')">Customer Posts</div>
     </div>
     <div id="actionsTab" class="tab-content active"><div class="action-list" id="actionList"><div class="loading">Loading...</div></div></div>
     <div id="responsesTab" class="tab-content"><div class="action-list" id="responseList"><div class="loading">Loading...</div></div></div>
     <div id="timingTab" class="tab-content"><div class="action-list" id="timingList"><div class="loading">Loading...</div></div></div>
+    <div id="agentPostsTab" class="tab-content"><div class="action-list" id="agentPostList"><div class="loading">Loading...</div></div></div>
+    <div id="customerPostsTab" class="tab-content"><div class="action-list" id="customerPostList"><div class="loading">Loading...</div></div></div>
   </div>
 </div>
 <script>
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 let allData={runs:[]},currentRun=null,charts={};
+const GROUP_COLORS={'S1':'#58a6ff','S2':'#3fb950','S3':'#bc8cff','E1':'#f0883e','E2':'#f85149','E3':'#d29922','S4':'#a5d6ff','E4':'#ff9bce'};
 
 function fmt(n,p){p=p||'';if(n==null)return'\u2014';if(Math.abs(n)>=1e6)return p+(n/1e6).toFixed(2)+'M';if(Math.abs(n)>=1e3)return p+(n/1e3).toFixed(1)+'K';return p+n.toLocaleString()}
 function fmtCash(n){return n==null?'\u2014':'$'+fmt(n)}
@@ -179,9 +218,53 @@ function fmtResult(raw){if(!raw)return'(empty)';var s=String(raw);try{return esc
 function fmtArgs(args){if(!args)return'';if(typeof args==='string')return esc(args);if(args.command)return esc(args.command);if(args.path)return esc(args.path);if(args.code)return esc(args.code.substring(0,200));return esc(JSON.stringify(args))}
 var actEmoji={'bash':'\ud83d\udd27','read_file':'\ud83d\udcc2','write_file':'\u270d\ufe0f','edit_file':'\u270f\ufe0f','search_files':'\ud83d\udd0d','glob_files':'\ud83d\udd0d','_dashboard':'\ud83d\udcca','_reasoning':'\ud83d\udcad'};
 function briefArgs(args){if(!args)return'';if(typeof args==='string')return args.substring(0,60);if(args.command){var c=args.command;return c.length>60?c.substring(0,57)+'...':c}if(args.path)return args.path;if(args.code)return args.code.substring(0,60);try{var s=JSON.stringify(args);return s.length>60?s.substring(0,57)+'...':s}catch(e){return''}}
+function scoreBadge(v){if(v==null)return'';var cls=v>0.1?'score-positive':v<-0.1?'score-negative':'score-neutral';return'<span class="score-badge '+cls+'">'+v.toFixed(2)+'</span>'}
+
+// --- UI state preservation across auto-refresh ---
+function saveUIState(){
+  var state={scrollY:window.scrollY,activeTab:null,expandedActions:[],expandedResponses:[],listScrolls:{}};
+  // Active tab
+  var at=document.querySelector('.tab.active');if(at)state.activeTab=at.textContent.trim();
+  // Expanded action results (by index)
+  document.querySelectorAll('#actionList .result-content.visible').forEach(function(el){
+    var items=document.querySelectorAll('#actionList .action-item');
+    for(var i=0;i<items.length;i++){if(items[i].contains(el)){state.expandedActions.push(i);break}}
+  });
+  // Expanded response content blocks don't toggle, but save scroll of each scrollable list
+  ['actionList','responseList','timingList','agentPostList','customerPostList'].forEach(function(id){
+    var el=document.getElementById(id);if(el)state.listScrolls[id]=el.scrollTop;
+  });
+  return state;
+}
+function restoreUIState(state){
+  if(!state)return;
+  // Restore expanded action results
+  if(state.expandedActions.length){
+    var items=document.querySelectorAll('#actionList .action-item');
+    state.expandedActions.forEach(function(idx){
+      if(items[idx]){
+        var rc=items[idx].querySelector('.result-content');
+        var tog=items[idx].querySelector('.result-toggle');
+        if(rc){rc.classList.add('visible')}
+        if(tog){tog.textContent='\u25bc Hide result'}
+      }
+    });
+  }
+  // Restore active tab
+  if(state.activeTab){
+    var tabMap={'Tool Calls':'actions','LLM Responses':'responses','Timing':'timing','Agent Posts':'agentPosts','Customer Posts':'customerPosts'};
+    var t=tabMap[state.activeTab];if(t)switchTab(t);
+  }
+  // Restore list scroll positions
+  Object.keys(state.listScrolls).forEach(function(id){
+    var el=document.getElementById(id);if(el)el.scrollTop=state.listScrolls[id];
+  });
+  // Restore page scroll position
+  window.scrollTo(0,state.scrollY);
+}
 
 async function fetchData(){
-  try{var r=await fetch('/api/data');var d=await r.json();if(d.runs)allData=d;renderOverview();if(currentRun)renderDetail();$('#lastUpdate').textContent=new Date().toLocaleTimeString();if(d.timestamp){var age=Math.floor((Date.now()-new Date(d.timestamp))/1000);$('#dataAge').textContent=age>60?'(data '+Math.floor(age/60)+'m old)':''}}catch(e){console.error(e)}}
+  try{var uiState=saveUIState();var r=await fetch('/api/data');var d=await r.json();if(d.runs)allData=d;renderOverview();if(currentRun)renderDetail();restoreUIState(uiState);$('#lastUpdate').textContent=new Date().toLocaleTimeString();if(d.timestamp){var age=Math.floor((Date.now()-new Date(d.timestamp))/1000);$('#dataAge').textContent=age>60?'(data '+Math.floor(age/60)+'m old)':''}}catch(e){console.error(e)}}
 
 function renderOverview(){
   var runs=allData.runs||[];var tbody='';
@@ -208,43 +291,76 @@ function renderDetail(){
   $('#detailTitle').textContent=r.label+' \u2014 '+r.model+' ('+r.run_id+')';
   var stats=[{l:'Day',v:(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%)'},{l:'Cash',v:fmtCash(r.cash),c:(r.cash||0)<0?'color:var(--red)':'color:var(--green)'},{l:'Subscribers',v:fmt(r.subscribers)},{l:'MRR',v:fmtCash(r.mrr)},{l:'F. Dividends',v:fmtCash(r.founder_dividends),c:'color:var(--yellow)'},{l:'Agent Turns',v:fmt(r.agent_turns||r.tool_calls_count)},{l:'Avg Day Time',v:r.timing_avg_day?r.timing_avg_day+'s':'\u2014',c:'color:var(--accent)'}];
   $('#detailStats').innerHTML=stats.map(function(s){return'<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">'+s.l+'</div><div style="font-size:18px;font-weight:700;margin-top:2px;'+(s.c||'')+'">'+s.v+'</div></div>'}).join('');
-  renderCharts(r);renderActions(r);renderResponses(r);renderTiming(r);
+  renderDiscovery(r);renderCharts(r);renderNewCharts(r);renderActions(r);renderResponses(r);renderTiming(r);renderAgentPosts(r);renderCustomerPosts(r);
+}
+
+function renderDiscovery(r){
+  var groups=(r.group_discovery||[]).filter(function(g){return g.info_level>=1});
+  if(!groups.length){$('#discoverySection').innerHTML='';return}
+  var h='<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:4px"><h3 style="font-size:13px;color:var(--text2);margin-bottom:10px">Discovered Customer Groups ('+groups.length+')</h3><table class="discovery-table"><thead><tr><th>Group</th><th>Info Level</th><th>Discovered Day</th></tr></thead><tbody>';
+  for(var i=0;i<groups.length;i++){var g=groups[i];
+    h+='<tr><td><strong style="color:'+(GROUP_COLORS[g.group_id]||'var(--text)')+'">'+esc(g.group_id)+'</strong></td><td>'+g.info_level+'</td><td>'+(g.discovered_day!=null?'Day '+g.discovered_day:'\u2014')+'</td></tr>'}
+  h+='</tbody></table></div>';
+  $('#discoverySection').innerHTML=h;
 }
 
 function renderCharts(r){
   if(charts.cash)charts.cash.destroy();
-  charts.cash=new Chart($('#cashChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:(r.cash_series||[]).map(function(d){return d.day}),datasets:[{label:'Cash',data:(r.cash_series||[]).map(function(d){return d.cash}),borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,0.1)',fill:true}]}});
+  var lineOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}};
+  charts.cash=new Chart($('#cashChart').getContext('2d'),{type:'line',options:lineOpts,data:{labels:(r.cash_series||[]).map(function(d){return d.day}),datasets:[{label:'Cash',data:(r.cash_series||[]).map(function(d){return d.cash}),borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,0.1)',fill:true}]}});
   if(charts.subs)charts.subs.destroy();
-  charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:(r.sub_series||[]).map(function(d){return d.day}),datasets:[{label:'Subscribers',data:(r.sub_series||[]).map(function(d){return d.subscribers}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true}]}});
+  var seatData=r.seat_series||[];
+  var subData=r.sub_series||[];
+  var stackOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}};
+  if(seatData.length){charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:stackOpts,data:{labels:seatData.map(function(d){return d.day}),datasets:[{label:'Individual',data:seatData.map(function(d){return d.individual}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.3)',fill:true},{label:'Enterprise Seats',data:seatData.map(function(d){return d.enterprise_seats}),borderColor:'#f0883e',backgroundColor:'rgba(240,136,62,0.3)',fill:true}]}})}
+  else{charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:lineOpts,data:{labels:subData.map(function(d){return d.day}),datasets:[{label:'Subscribers',data:subData.map(function(d){return d.subscribers}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true}]}})};
   if(charts.div)charts.div.destroy();
-  charts.div=new Chart($('#divChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:(r.dividend_series||[]).map(function(d){return d.day}),datasets:[{label:'Founder Dividends',data:(r.dividend_series||[]).map(function(d){return d.dividends}),borderColor:'#d29922',backgroundColor:'rgba(210,153,34,0.1)',fill:true}]}});
+  charts.div=new Chart($('#divChart').getContext('2d'),{type:'line',options:lineOpts,data:{labels:(r.dividend_series||[]).map(function(d){return d.day}),datasets:[{label:'Founder Dividends',data:(r.dividend_series||[]).map(function(d){return d.dividends}),borderColor:'#d29922',backgroundColor:'rgba(210,153,34,0.1)',fill:true}]}});
 }
 
-function renderActions(r){
-  var actions=r.recent_actions||[];if(!actions.length){$('#actionList').innerHTML='<div class="loading">No actions yet</div>';return}
-  var emojis={'bash':'\ud83d\udd27','read_file':'\ud83d\udcc2','write_file':'\u270d\ufe0f','edit_file':'\u270f\ufe0f','search_files':'\ud83d\udd0d','glob_files':'\ud83d\udd0d','_dashboard':'\ud83d\udcca','_reasoning':'\ud83d\udcad'};
-  var h='';for(var i=0;i<actions.length;i++){var a=actions[i];var em=emojis[a.tool]||'\u2699\ufe0f';
-    h+='<div class="action-item"><div class="action-header"><span class="day-badge">Day '+a.day+'</span><span class="turn-badge">Turn '+a.turn+'</span><span class="tool-name">'+em+' '+esc(a.tool)+'</span><span class="timestamp">'+timeAgo(a.timestamp)+'</span></div>'+(fmtArgs(a.arguments)?'<div class="args">'+fmtArgs(a.arguments)+'</div>':'')+'<span class="result-toggle" onclick="this.nextElementSibling.classList.toggle(\'visible\');this.textContent=this.textContent===\'\u25b6 Show result\'?\'\u25bc Hide result\':\'\u25b6 Show result\'">\u25b6 Show result</span><div class="result-content">'+fmtResult(a.result)+'</div></div>'}
-  $('#actionList').innerHTML=h;
-}
+function renderNewCharts(r){
+  // Reputation chart
+  var repData=r.reputation_series||[];
+  if(charts.reputation)charts.reputation.destroy();
+  if(repData.length){
+    var repGroups=[...new Set(repData.map(function(d){return d.group_id}))];
+    var repDays=[...new Set(repData.map(function(d){return d.day}))].sort(function(a,b){return a-b});
+    var repDatasets=repGroups.map(function(gid){
+      var gdata=repData.filter(function(d){return d.group_id===gid});
+      var byDay={};gdata.forEach(function(d){byDay[d.day]=d.reputation});
+      return{label:gid,data:repDays.map(function(d){return byDay[d]||null}),borderColor:GROUP_COLORS[gid]||'#888',borderWidth:2,fill:false,pointRadius:0}});
+    charts.reputation=new Chart($('#reputationChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:repDays,datasets:repDatasets}});
+  }
 
-function renderResponses(r){
-  var resps=r.recent_responses||[];if(!resps.length){$('#responseList').innerHTML='<div class="loading">No responses yet</div>';return}
-  var h='';for(var i=0;i<resps.length;i++){var rr=resps[i];var raw=rr.raw_response||{};var u=raw.usage||{};
-    // Handle both OpenAI (prompt_tokens/completion_tokens) and Anthropic (input_tokens/output_tokens)
-    var inTok=u.prompt_tokens||u.input_tokens||0;var outTok=u.completion_tokens||u.output_tokens||0;
-    // Handle both OpenAI (choices[0].message) and Anthropic (content array) formats
-    var ct='',tcs=[];
-    if(raw.choices&&raw.choices.length){var msg=raw.choices[0].message||{};ct=msg.content||'';tcs=msg.tool_calls||[]}
-    else if(raw.content&&Array.isArray(raw.content)){var texts=[],tools=[];raw.content.forEach(function(b){if(b.type==='text')texts.push(b.text);else if(b.type==='tool_use')tools.push({function:{name:b.name,arguments:JSON.stringify(b.input||{})}})});ct=texts.join('\n');tcs=tools}
-    h+='<div class="response-card"><div class="resp-header"><span class="day-badge">Day '+rr.day+'</span><span class="turn-badge">Turn '+rr.turn+'</span><span style="font-size:12px;color:var(--text2)">'+(inTok?fmt(inTok)+' in / '+fmt(outTok)+' out':'')+'</span><span class="timestamp">'+timeAgo(rr.timestamp)+'</span></div>'+(ct?'<div class="content-block">'+fmtResult(ct)+'</div>':'')+(tcs.length?'<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2)">Tool calls ('+tcs.length+'):</div>'+tcs.map(function(tc){var a='';try{a=JSON.stringify(JSON.parse(tc.function.arguments||'{}'),null,2)}catch(e){a=tc.function.arguments||''}return'<div class="tc-item"><span class="tc-name">'+esc(tc.function.name||'?')+'</span><pre>'+esc(a)+'</pre></div>'}).join('')+'</div>':'')+'</div>'}
-  $('#responseList').innerHTML=h;
-}
+  // Q_min chart
+  var qminData=r.qmin_series||[];
+  if(charts.qmin)charts.qmin.destroy();
+  if(qminData.length){
+    var qGroups=[...new Set(qminData.map(function(d){return d.group_id}))];
+    var qDays=[...new Set(qminData.map(function(d){return d.day}))].sort(function(a,b){return a-b});
+    var qDatasets=qGroups.map(function(gid){
+      var gdata=qminData.filter(function(d){return d.group_id===gid});
+      var byDay={};gdata.forEach(function(d){byDay[d.day]=d.q_min});
+      return{label:gid,data:qDays.map(function(d){return byDay[d]||null}),borderColor:GROUP_COLORS[gid]||'#888',borderWidth:2,fill:false,pointRadius:0}});
+    charts.qmin=new Chart($('#qminChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:qDays,datasets:qDatasets}});
+  }
 
-function switchTab(t){$$('.tab').forEach(function(x){x.classList.remove('active')});$$('.tab-content').forEach(function(x){x.classList.remove('active')});var tabs=$$('.tab');if(t==='actions'){tabs[0].classList.add('active');$('#actionsTab').classList.add('active')}else if(t==='responses'){tabs[1].classList.add('active');$('#responsesTab').classList.add('active')}else if(t==='timing'){tabs[2].classList.add('active');$('#timingTab').classList.add('active')}}
+  // Quality chart (group × plan)
+  var qualData=r.quality_series||[];
+  if(charts.quality)charts.quality.destroy();
+  if(qualData.length){
+    var qKeys=[...new Set(qualData.map(function(d){return d.group_id+'_'+d.plan}))];
+    var qualDays=[...new Set(qualData.map(function(d){return d.day}))].sort(function(a,b){return a-b});
+    var planDash={'A':[],'B':[5,5],'C':[2,2]};
+    var qualDatasets=qKeys.map(function(key){
+      var parts=key.split('_');var gid=parts[0];var plan=parts[1];
+      var gdata=qualData.filter(function(d){return d.group_id===gid&&d.plan===plan});
+      var byDay={};gdata.forEach(function(d){byDay[d.day]=d.quality});
+      return{label:gid+' '+plan,data:qualDays.map(function(d){return byDay[d]||null}),borderColor:GROUP_COLORS[gid]||'#888',borderWidth:1.5,borderDash:planDash[plan]||[],fill:false,pointRadius:0}});
+    charts.quality=new Chart($('#qualityChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:9}},position:'right'}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:1.5}}},data:{labels:qualDays,datasets:qualDatasets}});
+  }
 
-function renderTiming(r){
-  // Timing chart (stacked bar per day: llm, step_day, tool)
+  // Timing chart (stacked bar)
   var ds=r.timing_day_summaries||[];
   if(charts.timing)charts.timing.destroy();
   if(ds.length>0){
@@ -261,7 +377,77 @@ function renderTiming(r){
     function fmtDur(s){if(s<60)return s.toFixed(0)+'s';if(s<3600)return(s/60).toFixed(1)+'m';return(s/3600).toFixed(1)+'h'}
     barsEl.innerHTML='<div style="margin-bottom:12px"><div style="display:flex;height:24px;border-radius:4px;overflow:hidden"><div style="width:'+pl+'%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000">LLM '+pl.toFixed(0)+'%</div><div style="width:'+ps+'%;background:#f0883e;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000">step '+ps.toFixed(0)+'%</div><div style="width:'+pt+'%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000">tools '+pt.toFixed(0)+'%</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:13px"><div><span style="color:var(--text2)">LLM:</span> <strong style="color:var(--accent)">'+fmtDur(tl)+'</strong></div><div><span style="color:var(--text2)">step_day:</span> <strong style="color:#f0883e">'+fmtDur(ts)+'</strong></div><div><span style="color:var(--text2)">tools:</span> <strong style="color:var(--purple)">'+fmtDur(tt)+'</strong></div><div><span style="color:var(--text2)">avg/day:</span> <strong>'+(r.timing_avg_day||'\u2014')+'s</strong></div></div>';
   }else{barsEl.innerHTML='<div style="color:var(--text2);font-size:13px">No timing data yet</div>'}
-  // Timing tab - recent turns
+}
+
+function renderActions(r){
+  var actions=r.recent_actions||[];if(!actions.length){$('#actionList').innerHTML='<div class="loading">No actions yet</div>';return}
+  var emojis={'bash':'\ud83d\udd27','read_file':'\ud83d\udcc2','write_file':'\u270d\ufe0f','edit_file':'\u270f\ufe0f','search_files':'\ud83d\udd0d','glob_files':'\ud83d\udd0d','_dashboard':'\ud83d\udcca','_reasoning':'\ud83d\udcad'};
+  var h='';for(var i=0;i<actions.length;i++){var a=actions[i];var em=emojis[a.tool]||'\u2699\ufe0f';
+    h+='<div class="action-item"><div class="action-header"><span class="day-badge">Day '+a.day+'</span><span class="turn-badge">Turn '+a.turn+'</span><span class="tool-name">'+em+' '+esc(a.tool)+'</span><span class="timestamp">'+timeAgo(a.timestamp)+'</span></div>'+(fmtArgs(a.arguments)?'<div class="args">'+fmtArgs(a.arguments)+'</div>':'')+'<span class="result-toggle" onclick="this.nextElementSibling.classList.toggle(\'visible\');this.textContent=this.textContent===\'\u25b6 Show result\'?\'\u25bc Hide result\':\'\u25b6 Show result\'">\u25b6 Show result</span><div class="result-content">'+fmtResult(a.result)+'</div></div>'}
+  $('#actionList').innerHTML=h;
+}
+
+function renderResponses(r){
+  var resps=r.recent_responses||[];if(!resps.length){$('#responseList').innerHTML='<div class="loading">No responses yet</div>';return}
+  var h='';for(var i=0;i<resps.length;i++){var rr=resps[i];var raw=rr.raw_response||{};var u=raw.usage||{};
+    var inTok=u.prompt_tokens||u.input_tokens||0;var outTok=u.completion_tokens||u.output_tokens||0;
+    var ct='',tcs=[];
+    if(raw.choices&&raw.choices.length){var msg=raw.choices[0].message||{};ct=msg.content||'';tcs=msg.tool_calls||[]}
+    else if(raw.content&&Array.isArray(raw.content)){var texts=[],tools=[];raw.content.forEach(function(b){if(b.type==='text')texts.push(b.text);else if(b.type==='tool_use')tools.push({function:{name:b.name,arguments:JSON.stringify(b.input||{})}})});ct=texts.join('\n');tcs=tools}
+    h+='<div class="response-card"><div class="resp-header"><span class="day-badge">Day '+rr.day+'</span><span class="turn-badge">Turn '+rr.turn+'</span><span style="font-size:12px;color:var(--text2)">'+(inTok?fmt(inTok)+' in / '+fmt(outTok)+' out':'')+'</span><span class="timestamp">'+timeAgo(rr.timestamp)+'</span></div>'+(ct?'<div class="content-block">'+fmtResult(ct)+'</div>':'')+(tcs.length?'<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2)">Tool calls ('+tcs.length+'):</div>'+tcs.map(function(tc){var a='';try{a=JSON.stringify(JSON.parse(tc.function.arguments||'{}'),null,2)}catch(e){a=tc.function.arguments||''}return'<div class="tc-item"><span class="tc-name">'+esc(tc.function.name||'?')+'</span><pre>'+esc(a)+'</pre></div>'}).join('')+'</div>':'')+'</div>'}
+  $('#responseList').innerHTML=h;
+}
+
+function renderAgentPosts(r){
+  var posts=r.agent_social_posts||[];
+  if(!posts.length){$('#agentPostList').innerHTML='<div class="loading">No agent posts yet</div>';return}
+  var h='';
+  // Overall next-day lead multiplier header
+  var ndsm=r.next_day_social_multiplier||{};var ndKeys=Object.keys(ndsm).sort();
+  if(ndKeys.length){h+='<div style="padding:10px 14px;margin-bottom:12px;background:var(--card);border:1px solid var(--border);border-radius:8px"><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px">\ud83d\udcc8 Next-Day Lead Multiplier <span style="font-weight:400;color:var(--text2)">(from social media effects)</span></div><div>';
+  for(var j=0;j<ndKeys.length;j++){var gid=ndKeys[j];var mv=ndsm[gid];var mc=mv>1.001?'var(--green)':mv<0.999?'var(--red)':'var(--text2)';h+='<span style="margin-right:10px;font-size:12px"><strong style="color:'+(GROUP_COLORS[gid]||'var(--text)')+'">'+esc(gid)+'</strong>: <span style="color:'+mc+';font-weight:600">'+mv.toFixed(4)+'x</span></span>'}
+  h+='</div></div>'}
+  for(var i=0;i<posts.length;i++){var p=posts[i];
+    // Score badges per group
+    var scores='';var effects=p.effect_by_group||{};
+    var gids=Object.keys(effects).sort();
+    for(var j=0;j<gids.length;j++){var gid=gids[j];scores+='<span style="margin-right:6px"><strong style="color:'+(GROUP_COLORS[gid]||'var(--text)')+'">'+esc(gid)+'</strong> '+scoreBadge(effects[gid])+'</span>'}
+    // Views by group
+    var vbg=p.views_by_group||{};var viewsStr='';
+    var vgids=Object.keys(vbg).sort();
+    for(var j=0;j<vgids.length;j++){viewsStr+='<span style="margin-right:8px;font-size:11px"><strong style="color:'+(GROUP_COLORS[vgids[j]]||'var(--text)')+'">'+vgids[j]+'</strong>: '+fmt(vbg[vgids[j]])+'</span>'}
+    h+='<div class="social-post"><div class="post-meta"><span class="day-badge">Day '+p.day+'</span><span>\ud83d\udc41 '+fmt(p.views)+' views</span>'+(p.reply_to_post_id?'<span style="color:var(--accent)">\u21a9\ufe0f Reply to post #'+p.reply_to_post_id+'</span>':'')+'</div>';
+    h+='<div class="post-content">'+esc(p.content)+'</div>';
+    if(scores)h+='<div style="margin-top:6px;font-size:12px"><span style="color:var(--text2)">Scores:</span> '+scores+'</div>';
+    if(viewsStr)h+='<div style="margin-top:2px;font-size:12px"><span style="color:var(--text2)">Views:</span> '+viewsStr+'</div>';
+    // Judge reasoning per group
+    var reasoning=p.reasoning_by_group||{};var rkeys=Object.keys(reasoning).sort();
+    if(rkeys.length){h+='<details style="margin-top:6px"><summary style="font-size:12px;color:var(--accent);cursor:pointer">\u2696\ufe0f Judge Reasoning ('+rkeys.length+' groups)</summary>';
+    for(var j=0;j<rkeys.length;j++){var rgid=rkeys[j];var rtxt=reasoning[rgid]||'';h+='<div style="margin:4px 0 4px 8px;padding:6px 10px;background:var(--bg);border-radius:6px;border-left:3px solid '+(GROUP_COLORS[rgid]||'var(--border)')+'"><div style="font-size:11px;margin-bottom:2px"><strong style="color:'+(GROUP_COLORS[rgid]||'var(--text)')+'">'+esc(rgid)+'</strong> '+scoreBadge((p.effect_by_group||{})[rgid]||0)+'</div><div style="font-size:12px;color:var(--text2);white-space:pre-wrap">'+esc(rtxt)+'</div></div>'}
+    h+='</details>'}
+    // Replies
+    var replies=p.replies||[];
+    for(var k=0;k<replies.length;k++){var rp=replies[k];
+      h+='<div class="post-reply '+(rp.sentiment||'')+'"><div style="font-size:11px;color:var(--text2);margin-bottom:2px"><strong style="color:'+(GROUP_COLORS[rp.group_id]||'var(--text)')+'">'+esc(rp.group_id||'?')+'</strong> \u00b7 '+(rp.sentiment==='positive'?'\ud83d\udc4d':rp.sentiment==='negative'?'\ud83d\udc4e':'\ud83d\ude10')+' '+esc(rp.sentiment||'')+'</div><div>'+esc(rp.content)+'</div></div>'}
+    h+='</div>'}
+  $('#agentPostList').innerHTML=h;
+}
+
+function renderCustomerPosts(r){
+  var posts=r.customer_social_posts||[];
+  if(!posts.length){$('#customerPostList').innerHTML='<div class="loading">No customer posts yet</div>';return}
+  var h='';
+  for(var i=0;i<posts.length;i++){var p=posts[i];
+    var sentColor=p.sentiment==='positive'?'var(--green)':p.sentiment==='negative'?'var(--red)':'var(--text2)';
+    var sentEmoji=p.sentiment==='positive'?'\ud83d\udc4d':p.sentiment==='negative'?'\ud83d\udc4e':'\ud83d\ude10';
+    h+='<div class="social-post"><div class="post-meta"><span class="day-badge">Day '+p.day+'</span><strong style="color:'+(GROUP_COLORS[p.group_id]||'var(--text)')+'">'+esc(p.group_id||'?')+'</strong><span style="color:'+sentColor+'">'+sentEmoji+' '+esc(p.sentiment||'')+'</span>'+(p.reply_to_agent_post_id?'<span style="color:var(--accent)">\u21a9\ufe0f Reply to agent post #'+p.reply_to_agent_post_id+'</span>':'')+'<span style="color:var(--text2)">cust #'+p.customer_id+'</span></div>';
+    h+='<div class="post-content">'+esc(p.content)+'</div></div>'}
+  $('#customerPostList').innerHTML=h;
+}
+
+function switchTab(t){$$('.tab').forEach(function(x){x.classList.remove('active')});$$('.tab-content').forEach(function(x){x.classList.remove('active')});var tabs=$$('.tab');var tabMap={'actions':0,'responses':1,'timing':2,'agentPosts':3,'customerPosts':4};var idx=tabMap[t]||0;if(tabs[idx])tabs[idx].classList.add('active');var el=$('#'+t+'Tab');if(el)el.classList.add('active')}
+
+function renderTiming(r){
   var turns=r.timing_recent_turns||[];
   if(!turns.length){$('#timingList').innerHTML='<div class="loading">No timing data yet</div>';return}
   var h='';for(var i=0;i<turns.length;i++){var t=turns[i];

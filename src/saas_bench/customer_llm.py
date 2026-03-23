@@ -450,6 +450,7 @@ Guidelines:
 - Match the customer's writing style and tone
 - The post should reflect a {sentiment} experience
 - Customer satisfaction level: {satisfaction:.0%}
+- Keep it brief (under 150 words, or shorter if the post format calls for it)
 - Keep it authentic — vary your style, length, and structure
 - Don't be generic - include specific details that make it feel real
 {f"- IMPORTANT: Focus on the specific issue/event described above" if event_context_text else ""}
@@ -968,3 +969,180 @@ def generate_churn_message(
     )
 
     return message
+
+
+# =========================================================================
+# Agent Social Media: LLM Judge + Customer Reply Generation
+# =========================================================================
+
+def judge_agent_social_post(
+    bedrock_client,
+    config,
+    post_content: str,
+    group_id: str,
+    group_description: str,
+    group_social_tone: str,
+    subscriber_count: int,
+    mrr: float,
+    recent_agent_posts: list,
+    reply_to_content: str = None,
+) -> tuple:
+    """Judge an agent's social media post from a specific customer group's perspective.
+
+    Uses Haiku 4.5 on Bedrock. Returns (effect, reasoning) where effect is [-1.0, 1.0].
+
+    Args:
+        bedrock_client: AnthropicBedrock client
+        config: BenchmarkConfig
+        post_content: The agent's post text
+        group_id: Customer group being judged from
+        group_description: Group persona description
+        group_social_tone: Group social media tone
+        subscriber_count: Current subscriber count
+        mrr: Monthly recurring revenue
+        recent_agent_posts: Recent agent posts for repetition context
+        reply_to_content: If replying, the original customer post content
+
+    Returns:
+        (effect: float, reasoning: str, input_tokens: int, output_tokens: int)
+    """
+    import re
+
+    # Build recent posts context (up to 10, with original post for replies)
+    history_str = ""
+    if recent_agent_posts:
+        history_lines = []
+        for p in recent_agent_posts[:10]:
+            if p.get('reply_to_post_id') and p.get('original_post_content'):
+                history_lines.append(
+                    f'  - Day {p["day"]} (reply to: "{p["original_post_content"]}"): "{p["content"]}"'
+                )
+            else:
+                history_lines.append(f'  - Day {p["day"]}: "{p["content"]}"')
+        history_str = "\n".join(history_lines)
+
+    # Build the judge prompt
+    prompt = f"""You're scrolling through social media and you come across this post from the CEO of a B2B SaaS company called NovaMind — an AI/ML API platform for developers.
+
+The company has about {subscriber_count:,} customers and ${mrr:,.0f}/mo revenue.
+
+You are: {group_description}
+Your social media style: {group_social_tone}
+"""
+
+    if history_str:
+        prompt += f"""
+Their recent posts:
+{history_str}
+"""
+
+    if reply_to_content:
+        prompt += f"""
+A customer posted:
+"{reply_to_content}"
+
+The CEO replied:
+"{post_content}"
+
+Does this reply make you think "these people actually know what they're talking about, I should check out their product"?"""
+    else:
+        prompt += f"""
+They just posted:
+"{post_content}"
+
+How much does this post make you want to check out their product?"""
+
+    prompt += """
+
+Rate from -1.0 to 1.0:
+-1.0 = would avoid this product but would read or comment or repost
+0.0 = don't care, scroll past
+1.0 = immediately want to check out their product and want to read or comment or repost
+
+Respond in EXACTLY this format:
+SCORE: <number between -1.0 and 1.0>
+REASON: <one sentence why>"""
+
+    social_model = config.social_post_llm_model
+    response = bedrock_client.messages.create(
+        model=social_model,
+        max_tokens=100,
+        temperature=0.3,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = response.content[0].text.strip()
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+
+    # Parse structured response: "SCORE: <number>\nREASON: <text>"
+    effect = 0.0
+    score_match = re.search(r'SCORE:\s*(-?[01](?:\.\d+)?)', text)
+    if score_match:
+        effect = float(score_match.group(1))
+    else:
+        # Fallback: try to find any float in the text
+        fallback = re.search(r'(-?(?:0\.\d+|1\.0|0\.0|1|0))', text)
+        if fallback:
+            effect = float(fallback.group(1))
+    effect = max(-1.0, min(1.0, effect))
+
+    return effect, text, input_tokens, output_tokens
+
+
+def generate_customer_reply_to_agent(
+    bedrock_client,
+    config,
+    agent_post_content: str,
+    group_id: str,
+    group_description: str,
+    group_social_tone: str,
+    effect_score: float,
+    reply_to_content: str = None,
+) -> tuple:
+    """Generate a short Twitter-style customer reply to an agent's post.
+
+    Only called for viral reactions (|effect| >= threshold).
+
+    Args:
+        bedrock_client: AnthropicBedrock client
+        config: BenchmarkConfig
+        agent_post_content: The agent's post text
+        group_id: Customer group replying
+        group_description: Group persona description
+        group_social_tone: Group social media tone
+        effect_score: The judge score for this group
+        reply_to_content: If the agent was replying to a customer post, that post's content
+
+    Returns:
+        (reply_text: str, input_tokens: int, output_tokens: int)
+    """
+    sentiment_desc = "strongly positive" if effect_score > 0 else "strongly negative"
+
+    context = ""
+    if reply_to_content:
+        context = f'\nThis was the CEO\'s reply to a customer who posted: "{reply_to_content}"\n'
+
+    prompt = f"""SaaS simulation. Generate a short Twitter-style reply (1-2 sentences max, like a real tweet reply).
+
+You ARE a customer of NovaMind (AI/ML API platform). Your profile: {group_description}
+Your social media style: {group_social_tone}
+
+The NovaMind CEO posted:
+"{agent_post_content}"
+{context}
+Your reaction is {sentiment_desc} (score: {effect_score:.2f}). Write ONLY the reply tweet. Nothing else. Keep it SHORT — real people don't write essays in tweet replies. Do not include any meta-commentary or explanation."""
+
+    social_model = config.social_post_llm_model
+    response = bedrock_client.messages.create(
+        model=social_model,
+        max_tokens=150,
+        temperature=0.9,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = response.content[0].text.strip()
+    # Clean up any quotes/formatting artifacts
+    text = text.strip('"').strip("'").strip()
+
+    return text, response.usage.input_tokens, response.usage.output_tokens

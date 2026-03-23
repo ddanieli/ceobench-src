@@ -24,6 +24,10 @@ from .database import (
     TABLE_DOCS,
     # Config override recording
     record_config_override,
+    # Notifications
+    add_notification,
+    # Agent social media
+    add_agent_social_post, get_agent_posts_today, get_recent_agent_posts_for_judge,
 )
 from .enterprise import (
     schedule_customer_reply, batch_schedule_customer_replies,
@@ -928,6 +932,58 @@ TOOL_DOCS = {
         }
     },
 
+    "post_social_media": {
+        "name": "post_social_media",
+        "category": "Marketing & Social Media",
+        "description": "Post a social media message on company social media account. You can either post an original post or reply to an existing customer. Max 280 characters. Limit: 1 post per day. Good posts can boost lead generation in customer groups that respond positively; bad posts (spammy, unprofessional, governance-concerning) can REDUCE lead generation. Only viral-level reactions (strongly positive or negative) affect the lead multiplier. Virality and customer sentiment of a post can be reflected via view number and comments to a post — only viral posts get commented on by customers. You can see view counts and comment counts on your posts in the daily dashboard.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Post text (max 280 characters)"},
+                "reply_to_post_id": {"type": "integer", "description": "Optional: post_id from social_media_posts to reply to. Omit for an original post."}
+            },
+            "required": ["content"]
+        },
+        "parameters": {
+            "content": {
+                "type": "str",
+                "description": "The post text. Must be 280 characters or fewer (Twitter-length). Will be publicly visible.",
+                "example": "We just cut P99 latency from 340ms to 89ms. Details in thread."
+            },
+            "reply_to_post_id": {
+                "type": "int",
+                "description": "If replying to a customer post, the post_id from social_media_posts table. Omit or null for an original post. Errors if post_id doesn't exist.",
+                "example": 42
+            }
+        },
+        "returns": {
+            "success": "Posted! agent_post_id=5, day=42",
+            "failure": "Content exceeds 280 characters (got 312) / Already posted today (limit: 1 per day) / Post ID 999 not found in social_media_posts"
+        },
+        "output_schema": {
+            "agent_post_id": "int — ID of the new post in agent_social_media_posts table",
+            "day": "int — day the post was made",
+            "content": "str — the posted content",
+            "reply_to_post_id": "int or null — post being replied to",
+        },
+        "impact": "Viral posts perceived as positive by a customer group boost lead arrival speed for that group. Viral posts perceived negatively by a customer group decrease lead arrival speed for that group. Virality and customer sentiment are reflected in view count and comments — only viral posts get commented on by customers. Check the daily dashboard for comment counts on your posts.",
+        "example_call": {
+            "tool": "post_social_media",
+            "arguments": {"content": "We just shipped chunked prefill — P99 latency down 74%. Technical writeup in thread."}
+        },
+        "sample_io": {
+            "success": [
+                {"label": "Original post", "input": {"content": "Shipped faster inference today."}, "output": "Posted! agent_post_id=1, day=42"},
+                {"label": "Reply to customer", "input": {"content": "Thanks for the feedback! DM me for priority support.", "reply_to_post_id": 15}, "output": "Posted reply to post #15! agent_post_id=2, day=42"}
+            ],
+            "failure": [
+                {"label": "Too long", "input": {"content": "x" * 300}, "output": "Content exceeds 280 characters (got 300)"},
+                {"label": "Already posted today", "input": {"content": "Another post"}, "output": "Already posted today (limit: 1 post per day). Try again tomorrow."},
+                {"label": "Invalid post_id", "input": {"content": "Great point!", "reply_to_post_id": 9999}, "output": "Post ID 9999 not found in social_media_posts"}
+            ]
+        }
+    },
+
     "get_cost_info": {
         "name": "get_cost_info",
         "category": "Analytics & Monitoring",
@@ -1083,11 +1139,11 @@ TOOL_DOCS = {
     "research_market": {
         "name": "research_market",
         "category": "Market Discovery",
-        "description": "Conduct market research to discover new customer segments. Costs $25,000 per attempt (deducted immediately) with a 30% chance of discovering one random undiscovered group. Result is instant (no delay). You do NOT choose which group \u2014 the simulator picks one at random from the remaining undiscovered pool. Discovered groups start at Info Level 1 (\u00b150% accuracy). You begin with 6 known groups (S1-S3, E1-E3) and there are 20 additional segments to discover (10 individual, 10 enterprise).",
+        "description": "Conduct market research to discover new customer segments. Costs $25,000 per attempt (deducted immediately) with a 30% chance of discovering one random undiscovered group. Result is instant (no delay). You do NOT choose which group \u2014 the simulator picks one at random from the remaining undiscovered pool. Discovered groups start at Info Level 1 (\u00b165% accuracy). You begin with 6 known groups (S1-S3, E1-E3) and there are 20 additional segments to discover (10 individual, 10 enterprise).",
         "inputSchema": {"type": "object", "properties": {}},
         "parameters": {},
         "returns": {
-            "success": "=== Market Research Success ===\nCost: $25,000\nDiscovered: Niche Creators (D_S01) \u2014 Individual segment\nInfo Level: 1 (noisy estimates \u00b150%)\n\n--- Initial Estimates (\u00b150% accuracy) ---\n  Willingness to pay:   ~$85/mo\n  Usage volume:         ~35 units/day\n  Quality expectations: ~0.58\n  Market cap:           ~185,000 customers\n  Market cap growth:    ~9.2%/year\n\nUse get_group_insights('D_S01') for full parameter estimates.\nUse research_group('D_S01') to improve accuracy.",
+            "success": "=== Market Research Success ===\nCost: $25,000\nDiscovered: Niche Creators (D_S01) \u2014 Individual segment\nInfo Level: 1 (noisy estimates \u00b165%)\n\n--- Initial Estimates (\u00b165% accuracy) ---\n  Willingness to pay:   ~$85/mo\n  Usage volume:         ~35 units/day\n  Quality expectations: ~0.58\n  Market cap:           ~185,000 customers\n  Market cap growth:    ~9.2%/year\n\nUse get_group_insights('D_S01') for full parameter estimates.\nUse research_group('D_S01') to improve accuracy.",
             "failure": "Market research complete ($25,000). No new segments discovered this time. Try again for another chance.",
             "no_funds": "Insufficient funds. Market research costs $25,000. Available: $12,000",
             "data_on_success": {
@@ -1126,7 +1182,7 @@ TOOL_DOCS = {
     "research_group": {
         "name": "research_group",
         "category": "Market Discovery",
-        "description": "Start research on a discovered customer group to reach a specific info level. Any level (2-5) can be targeted directly without requiring intermediate levels. Research takes several days; results delivered to your inbox. Cost is deducted immediately.",
+        "description": "Research a discovered customer group to a specific info level. Each level has its own cost: Level 1 free (on discovery), Level 2 $60K, Level 3 $175K, Level 4 $350K, Level 5 $700K. Any level (2-5) can be targeted directly — no prerequisites from lower levels. Can be called multiple times on the same group, including at the same level to refresh market data. Each call deducts cost immediately. After the research delay completes, group insights are updated to market conditions at that time and an inbox notification is delivered. Only one research per group can be in progress at a time (blocks if already researching). Use get_group_insights() to retrieve the data.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1153,18 +1209,21 @@ TOOL_DOCS = {
             "failure_insufficient_funds": "Insufficient funds. Research Level 5 costs $700,000. Available: $45,000"
         },
         "cost_and_duration": {
+            "Level 1": "Free (granted on discovery via research_market)",
             "Level 2": "$60,000 (Basic Research, ~3 days, ±40%)",
             "Level 3": "$175,000 (Detailed Research, ~5 days, ±25%)",
             "Level 4": "$350,000 (Deep Research, ~7 days, ±15%)",
             "Level 5": "$700,000 (Precision Research, ~10 days, ±5%)"
         },
         "what_happens": [
-            "1. Cost deducted from cash immediately (based on target level, not current level)",
-            "2. Research is queued with a delay (3-10 days depending on target level)",
-            "3. When complete, a notification appears in your inbox with results",
-            "4. Group info level is set to target level on completion",
-            "5. Can jump directly from Level 1 to Level 5 (no intermediate levels required)",
-            "6. Use get_group_insights() after completion to see updated estimates"
+            "1. Cost deducted from cash immediately (based on target level)",
+            "2. Research queued with delay (3-10 days depending on level)",
+            "3. On completion: group insights updated to market conditions at that time",
+            "4. On completion: inbox notification delivered (always, for both upgrade and refresh)",
+            "5. Any level (2-5) can be targeted directly — no prerequisites",
+            "6. Can be called multiple times, including at same level to refresh market data",
+            "7. Only one research per group at a time — blocks if already in progress",
+            "8. Use get_group_insights() after completion to retrieve updated data"
         ],
         "output_schema": {
             "group_id": "str — group ID being researched",
@@ -1172,7 +1231,7 @@ TOOL_DOCS = {
             "expected_completion_day": "int — sim day when research completes",
             "_access": "result['expected_completion_day'] → when results arrive"
         },
-        "impact": "Costs deducted immediately. Results delivered asynchronously via inbox notification after a delay of several days.",
+        "impact": "Cost deducted immediately. After research delay completes, group insights are updated to market conditions at completion time and inbox notification is delivered. get_group_insights() returns data from the last completed research — to get fresh market data, call research_group() again. Blocks if already in progress.",
         "example_call": {
             "tool": "research_group",
             "arguments": {"group_id": "D_S01", "target_level": 5},
@@ -1181,7 +1240,8 @@ TOOL_DOCS = {
             "success": [
                 {"label": "Jump to Level 5", "input": {"group_id": "D_S01", "target_level": 5}, "output": "=== Research Started ===\nGroup: Niche Creators (D_S01)\nLevel: 1 → 5\nCost: $700,000 (deducted)\nExpected completion: day 25 (~10 days)\nNew parameter accuracy: ±5%"},
                 {"label": "Default next level", "input": {"group_id": "D_E01"}, "output": "=== Research Started ===\nGroup: Government Agencies (D_E01)\nLevel: 1 → 2\nCost: $60,000 (deducted)\nExpected completion: day 18 (~3 days)\nNew parameter accuracy: ±40%"},
-                {"label": "Level 2→3", "input": {"group_id": "D_E01", "target_level": 3}, "output": "=== Research Started ===\nGroup: Government Agencies (D_E01)\nLevel: 2 → 3\nCost: $175,000 (deducted)\nExpected completion: day 35 (~5 days)\nNew parameter accuracy: ±25%"}
+                {"label": "Level 2→3", "input": {"group_id": "D_E01", "target_level": 3}, "output": "=== Research Started ===\nGroup: Government Agencies (D_E01)\nLevel: 2 → 3\nCost: $175,000 (deducted)\nExpected completion: day 35 (~5 days)\nNew parameter accuracy: ±25%"},
+                {"label": "Refresh at same level", "input": {"group_id": "D_S01", "target_level": 3}, "output": "=== Research Started (Refresh) ===\nGroup: Niche Creators (D_S01)\nLevel: 3 (refresh — market data will be updated on completion)\nCost: $175,000 (deducted)\nExpected completion: day 85 (~5 days)\nResults will be delivered to your inbox when complete.\nMarket insights will be updated to conditions at completion time."}
             ],
             "failure": [
                 {"label": "Already in progress", "input": {"group_id": "D_S01", "target_level": 3}, "output": "Research already in progress for group 'D_S01'. Expected completion: day 18."},
@@ -1228,7 +1288,7 @@ TOOL_DOCS = {
     "get_group_insights": {
         "name": "get_group_insights",
         "category": "Market Discovery",
-        "description": "Get estimated parameters for a discovered customer group based on current info level. Returns noisy estimates that improve with higher info levels. Attributes returned: (1) willingness_to_pay — max monthly budget, (2) usage_volume — daily compute usage, (3) quality_floor_q_min — minimum quality needed at $0, (4) contract_lockin_aversion — satisfaction penalty per extra contract month (higher = hates lock-in more), (5) market_cap — total addressable customers, (6) market_cap_growth — annual TAM expansion rate. Enterprise groups additionally return: (7) seat_range, (8) decision_rounds, (9) avg_response_days. Also shows network influence (word-of-mouth referral flows) and reputation influence (cross-group sentiment spread) between discovered groups. Estimates are deterministic (same query = same result).",
+        "description": "Retrieve estimated parameters for a discovered customer group. Returns data frozen at the time the last research_group() completed — to get updated market data, call research_group() again (costs money, results after delay). Accuracy depends on info level (Level 1: ±65%, Level 5: ±5%). Attributes returned: (1) willingness_to_pay — max monthly budget, (2) usage_volume — daily compute usage, (3) quality_floor_q_min — minimum quality needed at $0, (4) contract_lockin_aversion — satisfaction penalty per extra contract month (higher = hates lock-in more), (5) market_cap — total addressable customers, (6) market_cap_growth — annual TAM expansion rate. Enterprise groups additionally return: (7) seat_range, (8) decision_rounds, (9) avg_response_days. Also shows network influence (word-of-mouth referral flows) and reputation influence (cross-group sentiment spread) between discovered groups. Free and read-only.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1280,7 +1340,7 @@ TOOL_DOCS = {
             "reputation_influence": "Dict — keys: outgoing (Dict[str,float]), incoming (Dict[str,float]) — influence weights 0-1",
             "_access": "result['estimates']['willingness_to_pay'] → group's WTP"
         },
-        "impact": "Read-only. No cost. Use frequently to inform pricing and targeting decisions. Also shows network and reputation influence relationships between discovered groups.",
+        "impact": "Read-only. No cost. Returns data frozen at the time the last research_group() completed for this group. Calling multiple times returns the same data. To refresh with current market conditions, call research_group() again (costs money, updated after delay). Also shows network and reputation influence relationships between discovered groups.",
         "example_call": {
             "tool": "get_group_insights",
             "arguments": {"group_id": "D_S01"},
@@ -1871,12 +1931,14 @@ class ToolResult:
 class AgentTools:
     """Tools available to the agent."""
 
-    def __init__(self, conn: sqlite3.Connection, current_day: int, workspace_path: Path, db_path: Path, rng: Optional[Generator] = None, config: Optional[BenchmarkConfig] = None):
+    def __init__(self, conn: sqlite3.Connection, current_day: int, workspace_path: Path, db_path: Path = None, rng: Optional[Generator] = None, config: Optional[BenchmarkConfig] = None, seed: int = 42, api_port: int = 0):
         self.conn = conn
         self.current_day = current_day
         self.workspace_path = workspace_path
-        self.db_path = db_path  # Store absolute path to database
+        self.db_path = db_path  # Deprecated: kept for backward compat with harness runners
+        self.api_port = api_port  # HTTP API port for sandbox DB access
         self.rng = rng if rng is not None else default_rng()  # RNG for scheduling customer replies
+        self.seed = seed  # Global seed for path-independent RNG derivation
         self.config = config or BenchmarkConfig()  # V2: needed for VC negotiation
         self.workspace_path.mkdir(parents=True, exist_ok=True)
         self.event_logger = None  # Optional event logger
@@ -3070,7 +3132,7 @@ class AgentTools:
         print(df)
 
         # Get recent social media posts
-        print(rows("SELECT day, content, likes, shares FROM social_media_posts WHERE day > (SELECT MAX(day)-7 FROM social_media_posts) ORDER BY likes DESC LIMIT 10"))
+        print(rows("SELECT day, content FROM social_media_posts WHERE day > (SELECT MAX(day)-7 FROM social_media_posts) ORDER BY day DESC LIMIT 10"))
 
         # Get cash balance
         print(row("SELECT SUM(amount) FROM ledger"))
@@ -3129,7 +3191,7 @@ class AgentTools:
 
         # Write code to temp file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            # Add imports and setup - use stored db_path for reliable access
+            # Add imports and setup - route DB access through HTTP API when available
             setup_code = f"""
 import warnings
 warnings.filterwarnings('ignore')
@@ -3189,6 +3251,10 @@ _HIDDEN_TABLES = {{
     'pending_group_research', # Internal async research tracking
     'group_parameters',       # V2.1: Internal preference drift tracking (agent must infer from behavior)
     'competitor_events',      # V4: Hidden — agent should not see internal competitor boost mechanics
+    'group_insight_snapshots', # Internal: frozen market data for get_group_insights (accessed via tool)
+    '_hidden_group_params_history',  # Post-run analysis: daily group parameter snapshots
+    '_hidden_quality_snapshot',      # Post-run analysis: daily quality components per group×plan
+    '_hidden_satisfaction_snapshot', # Post-run analysis: daily avg satisfaction per group
 }}
 
 # Hidden columns that agent should not see (latent customer attributes, internal simulation params)
@@ -3314,7 +3380,10 @@ def _filter_schema_result(result, query):
 # Valid tables the agent can query
 _VALID_TABLES = {{
     'customers', 'subscriptions', 'ledger', 'service_day', 'config_history',
-    'social_media_posts', 'enterprise_turns', 'notifications'
+    'social_media_posts', 'enterprise_turns', 'notifications',
+    'ad_channel_leads', 'ads_revenue', 'agent_social_media_posts',
+    'config_overrides', 'daily_usage', 'group_info_levels',
+    'issues', 'macroeconomic_conditions', 'research_projects', 'segment_discovery'
 }}
 
 # Table columns for helpful error messages (generated at sandbox creation time)
@@ -3447,31 +3516,112 @@ class _FilteredCursor:
     def __getattr__(self, name):
         return getattr(self._cursor, name)
 
-# Connect to database (read-only) and wrap with filter
-_real_conn = sqlite3.connect('file:{self.db_path}?mode=ro', uri=True)
-_real_conn.row_factory = sqlite3.Row
-conn = _FilteredConnection(_real_conn)
+# Connect to database via HTTP API (no direct file access)
+import urllib.request
+import urllib.error
+
+_API_PORT = {self.api_port}
+
+def _api_query(sql):
+    \"\"\"Execute SQL via the API server (all filtering done server-side).\"\"\"
+    url = f'http://127.0.0.1:{{_API_PORT}}/query'
+    payload = json.dumps({{'sql': sql}}).encode()
+    req = urllib.request.Request(url, data=payload,
+                                 headers={{'Content-Type': 'application/json'}},
+                                 method='POST')
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read())
+    if not result.get('success'):
+        raise RuntimeError(result.get('error', 'Query failed'))
+    return result
+
+class _HTTPCursor:
+    \"\"\"Cursor-like wrapper for HTTP query results.\"\"\"
+    def __init__(self, result):
+        self._result = result
+        self._rows = result.get('rows', []) if result else []
+        self._columns = result.get('columns', []) if result else []
+        self._pos = 0
+    def execute(self, query, params=()):
+        if params:
+            for p in params:
+                query = query.replace('?', repr(p), 1)
+        self._result = _api_query(query)
+        self._rows = self._result.get('rows', [])
+        self._columns = self._result.get('columns', [])
+        self._pos = 0
+        return self
+    def fetchone(self):
+        if self._pos >= len(self._rows):
+            return None
+        row = self._rows[self._pos]
+        self._pos += 1
+        return tuple(row[c] for c in self._columns)
+    def fetchall(self):
+        rows = self._rows[self._pos:]
+        self._pos = len(self._rows)
+        return [tuple(r[c] for c in self._columns) for r in rows]
+    def fetchmany(self, size=None):
+        end = self._pos + (size or 1)
+        rows = self._rows[self._pos:end]
+        self._pos = end
+        return [tuple(r[c] for c in self._columns) for r in rows]
+    @property
+    def description(self):
+        return tuple((c, None, None, None, None, None, None) for c in self._columns)
+    def __iter__(self):
+        for row in self._rows:
+            yield tuple(row[c] for c in self._columns)
+
+class _HTTPConnection:
+    \"\"\"SQLite-like connection that routes queries through HTTP API.\"\"\"
+    def execute(self, query, params=()):
+        if params:
+            for p in params:
+                query = query.replace('?', repr(p), 1)
+        result = _api_query(query)
+        return _HTTPCursor(result)
+    def cursor(self):
+        return _HTTPCursor(None)
+
+if _API_PORT > 0:
+    conn = _HTTPConnection()
+else:
+    # Fallback: direct file access with filtering (harness/dev mode only)
+    _real_conn = sqlite3.connect('file:{self.db_path}?mode=ro', uri=True)
+    _real_conn.row_factory = sqlite3.Row
+    conn = _FilteredConnection(_real_conn)
+    del _real_conn  # Remove direct reference from agent scope
 
 # Helper: convert Row objects to tuples for cleaner printing
 def rows(query, params=()):
-    \"\"\"Execute query and return list of tuples (hidden columns filtered).\"\"\"
+    \"\"\"Execute query and return list of tuples.\"\"\"
     cursor = conn.execute(query, params)
     return cursor.fetchall()
 
 def row(query, params=()):
-    \"\"\"Execute query and return single tuple or None (hidden columns filtered).\"\"\"
+    \"\"\"Execute query and return single tuple or None.\"\"\"
     cursor = conn.execute(query, params)
     return cursor.fetchone()
 
-# Override pd.read_sql to filter hidden columns
+# Override pd.read_sql to route through API or filtered connection
 _original_read_sql = pd.read_sql
-def _filtered_read_sql(query, con, *args, **kwargs):
-    df = _original_read_sql(query, con, *args, **kwargs)
-    # Drop hidden columns if present
-    cols_to_drop = [c for c in df.columns if c in _HIDDEN_COLUMNS]
-    if cols_to_drop:
-        df = df.drop(columns=cols_to_drop)
-    return df
+if _API_PORT > 0:
+    def _filtered_read_sql(query, con, *args, **kwargs):
+        \"\"\"Read SQL via HTTP API, return DataFrame.\"\"\"
+        result = _api_query(query)
+        _rows = result.get('rows', [])
+        _columns = result.get('columns', [])
+        if _rows:
+            return pd.DataFrame(_rows, columns=_columns)
+        return pd.DataFrame(columns=_columns)
+else:
+    def _filtered_read_sql(query, con, *args, **kwargs):
+        df = _original_read_sql(query, con, *args, **kwargs)
+        cols_to_drop = [c for c in df.columns if c in _HIDDEN_COLUMNS]
+        if cols_to_drop:
+            df = df.drop(columns=cols_to_drop)
+        return df
 pd.read_sql = _filtered_read_sql
 
 # Working directory
@@ -3828,10 +3978,29 @@ os.chdir('{self.workspace_path}')
         if not posts:
             return ToolResult(True, "No social media posts found.", {'posts': []})
 
+        # Build lookup for agent posts referenced by customer replies
+        agent_post_ids = set()
+        for p in posts:
+            apid = p.get('reply_to_agent_post_id')
+            if apid:
+                agent_post_ids.add(apid)
+        agent_post_content = {}
+        if agent_post_ids:
+            placeholders = ','.join('?' * len(agent_post_ids))
+            rows = self.conn.execute(
+                f"SELECT agent_post_id, content FROM agent_social_media_posts WHERE agent_post_id IN ({placeholders})",
+                list(agent_post_ids)
+            ).fetchall()
+            agent_post_content = {r['agent_post_id']: r['content'] for r in rows}
+
         # Format for display - show post content only (engagement metrics hidden)
         summary = []
         for p in posts[:15]:  # Show first 15 in message
-            summary.append(f"Day {p['day']}: \"{p['content'][:80]}\"")
+            apid = p.get('reply_to_agent_post_id')
+            if apid and apid in agent_post_content:
+                summary.append(f"Day {p['day']} [reply to your post: \"{agent_post_content[apid][:60]}...\"]: \"{p['content'][:80]}\"")
+            else:
+                summary.append(f"Day {p['day']}: \"{p['content'][:80]}\"")
 
         # Strip hidden fields from returned data
         _hidden_post_keys = {'sentiment', 'likes', 'shares', 'virality_score',
@@ -3839,6 +4008,10 @@ os.chdir('{self.workspace_path}')
         clean_posts = []
         for p in posts:
             post_data = {k: v for k, v in p.items() if k not in _hidden_post_keys}
+            # Include agent post content for replies
+            apid = p.get('reply_to_agent_post_id')
+            if apid and apid in agent_post_content:
+                post_data['replying_to_your_post'] = agent_post_content[apid]
             clean_posts.append(post_data)
 
         return ToolResult(
@@ -3848,6 +4021,63 @@ os.chdir('{self.workspace_path}')
         )
 
     # =========================================================================
+    # Social Media Posting (Agent → Public)
+    # =========================================================================
+
+    def post_social_media(self, content: str, reply_to_post_id: int = None) -> ToolResult:
+        """Post a social media message as the CEO.
+
+        Max 280 characters. Limit 1 post per day.
+        Optionally reply to an existing customer post by passing reply_to_post_id.
+
+        Args:
+            content: Post text (max 280 characters)
+            reply_to_post_id: Optional post_id from social_media_posts to reply to
+        """
+        # Validate content length
+        if len(content) > 280:
+            return ToolResult(False, f"Content exceeds 280 characters (got {len(content)})")
+
+        if not content.strip():
+            return ToolResult(False, "Content cannot be empty")
+
+        # Check 1-post-per-day limit
+        posts_today = get_agent_posts_today(self.conn, self.current_day)
+        if posts_today >= 1:
+            return ToolResult(False, "Already posted today (limit: 1 post per day). Try again tomorrow.")
+
+        # Validate reply_to_post_id if provided
+        reply_to_content = None
+        if reply_to_post_id is not None:
+            row = self.conn.execute(
+                "SELECT content FROM social_media_posts WHERE post_id = ?",
+                (reply_to_post_id,)
+            ).fetchone()
+            if row is None:
+                return ToolResult(False, f"Post ID {reply_to_post_id} not found in social_media_posts")
+            reply_to_content = row['content']
+
+        # Insert the post (effects will be computed by simulation on next step_day)
+        agent_post_id = add_agent_social_post(
+            self.conn, self.current_day, content,
+            reply_to_post_id=reply_to_post_id,
+        )
+        self.conn.commit()
+
+        if reply_to_post_id is not None:
+            msg = f"Posted reply to post #{reply_to_post_id}! agent_post_id={agent_post_id}, day={self.current_day}"
+        else:
+            msg = f"Posted! agent_post_id={agent_post_id}, day={self.current_day}"
+
+        return ToolResult(True, msg, {
+            'agent_post_id': agent_post_id,
+            'day': self.current_day,
+            'content': content,
+            'reply_to_post_id': reply_to_post_id,
+        })
+
+    # =========================================================================
+    # Enterprise Deals
     # =========================================================================
 
     def reject_enterprise_deal(self, deals: Optional[List[Dict]] = None,
@@ -3999,10 +4229,16 @@ os.chdir('{self.workspace_path}')
                 f"Market research complete (${cost:,.0f}). No new segments to discover — all segments have been identified.",
                 data={'cost': cost})
 
+        # Path-independent RNG: seeded by (global_seed, "market_research", attempt_number)
+        # so discovery results depend only on how many times research_market was called, not on other RNG usage
+        attempt_count = self.conn.execute("SELECT COUNT(*) FROM segment_discovery").fetchone()[0]
+        market_seed = hash((self.seed, "market_research", attempt_count)) % (2**31)
+        market_rng = default_rng(market_seed)
+
         # Roll for discovery
-        if self.rng.random() < self.config.market_research_discover_prob:
+        if market_rng.random() < self.config.market_research_discover_prob:
             # Success! Discover a random undiscovered group
-            discovered_gid = undiscovered[self.rng.integers(0, len(undiscovered))]
+            discovered_gid = undiscovered[market_rng.integers(0, len(undiscovered))]
             upgrade_group_info_level(self.conn, discovered_gid, self.current_day)
 
             group_cfg = CUSTOMER_GROUPS.get(discovered_gid)
@@ -4038,6 +4274,20 @@ os.chdir('{self.workspace_path}')
                 self.conn, self.current_day, 'market_discovery',
                 f'Market discovery #{attempt_id}: {discovered_gid} (level 1)',
             )
+
+            # Snapshot current market state for this newly discovered group
+            # so get_group_insights has data from discovery time
+            from .database import get_group_parameters as _get_gp_disc
+            drifted_disc = _get_gp_disc(self.conn, discovered_gid)
+            snap_c_max = drifted_disc['current_c_max_mean'] if drifted_disc else group_cfg.c_max_mean
+            snap_q_min = drifted_disc['current_q_min_mean'] if drifted_disc else group_cfg.q_min_mean
+            snap_market_cap = group_cfg.base_market_cap * (1 + group_cfg.annual_cap_growth_rate * self.current_day / 365.0)
+            self.conn.execute("""
+                INSERT OR REPLACE INTO group_insight_snapshots
+                    (group_id, snapshot_day, snapshot_c_max, snapshot_q_min, snapshot_market_cap)
+                VALUES (?, ?, ?, ?, ?)
+            """, (discovered_gid, self.current_day, snap_c_max, snap_q_min, snap_market_cap))
+
             return ToolResult(True,
                 f"=== Market Research Success ===\n"
                 f"Cost: ${cost:,.0f}\n"
@@ -4076,9 +4326,10 @@ os.chdir('{self.workspace_path}')
 
         Args:
             group_id: The group to research (must be discovered, Level 1+)
-            target_level: The target info level (2, 3, or 4). Defaults to current_level + 1.
+            target_level: The target info level (2-5). Defaults to current_level + 1.
+                          Can target the same level to refresh market data without upgrading.
         """
-        from .database import get_cash
+        from .database import get_cash, get_group_parameters
 
         current_level = get_group_info_level(self.conn, group_id)
 
@@ -4087,18 +4338,17 @@ os.chdir('{self.workspace_path}')
 
         # Determine target level
         if target_level is None:
-            target_level = current_level + 1
+            target_level = max(current_level, 2)  # At least level 2; same-level refresh if already >=2
 
         if not isinstance(target_level, int) or target_level < 2 or target_level > 5:
             return ToolResult(False, f"Target level must be 2, 3, 4, or 5. Got: {target_level}")
 
-        if target_level <= current_level:
+        if target_level < current_level:
             return ToolResult(False,
-                f"Group '{group_id}' is already at Level {current_level}. "
+                f"Group '{group_id}' is at Level {current_level}. "
                 f"Cannot research to Level {target_level} (no downgrade).")
 
-        if current_level >= 5:
-            return ToolResult(False, f"Group '{group_id}' is already at maximum info level (Level 5).")
+        is_refresh = (target_level == current_level)
 
         # Check if research is already in progress for this group
         existing = self.conn.execute("""
@@ -4110,7 +4360,7 @@ os.chdir('{self.workspace_path}')
                 f"Research already in progress for group '{group_id}'. "
                 f"Expected completion: day {existing['expected_completion_day']}.")
 
-        # Cost and delay based on TARGET level (not current level)
+        # Cost and delay based on TARGET level
         cost_map = {
             2: self.config.research_cost_level_2,
             3: self.config.research_cost_level_3,
@@ -4125,42 +4375,69 @@ os.chdir('{self.workspace_path}')
         }
         cost = cost_map[target_level]
         delay = delay_map[target_level]
-        noise_map = {2: '±40%', 3: '±25%', 4: '±15%', 5: '±5%'}
+        noise_map = {1: '±65%', 2: '±40%', 3: '±25%', 4: '±15%', 5: '±5%'}
 
         cash = get_cash(self.conn)
         if cash < cost:
             return ToolResult(False, f"Insufficient funds. Research Level {target_level} costs ${cost:,.0f}. Available: ${cash:,.0f}")
 
         # Debit cash immediately
+        label = f"Research {group_id}: refresh Level {target_level}" if is_refresh else f"Research {group_id}: Level {current_level}→{target_level}"
         add_ledger_entry(
             self.conn, self.current_day, 'group_research',
-            -cost, f"Research {group_id}: Level {current_level}→{target_level}"
+            -cost, label
         )
 
-        # Queue the research with delay
-        expected_completion_day = self.current_day + delay
-        self.conn.execute("""
-            INSERT INTO pending_group_research
-                (group_id, from_level, to_level, cost, started_day, expected_completion_day, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'in_progress')
-        """, (group_id, current_level, target_level, cost, self.current_day, expected_completion_day))
+        # Snapshot will be taken when research completes (in _process_group_research)
+        # NOT at call time — agent gets updated data after the delay
+        group_cfg = CUSTOMER_GROUPS.get(group_id)
+
+        if not is_refresh:
+            # Queue the research with delay (level upgrade)
+            expected_completion_day = self.current_day + delay
+            self.conn.execute("""
+                INSERT INTO pending_group_research
+                    (group_id, from_level, to_level, cost, started_day, expected_completion_day, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'in_progress')
+            """, (group_id, current_level, target_level, cost, self.current_day, expected_completion_day))
+        else:
+            # Same-level refresh: no level change needed, just snapshot + delay for consistency
+            expected_completion_day = self.current_day + delay
+            self.conn.execute("""
+                INSERT INTO pending_group_research
+                    (group_id, from_level, to_level, cost, started_day, expected_completion_day, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'in_progress')
+            """, (group_id, current_level, current_level, cost, self.current_day, expected_completion_day))
 
         self.conn.commit()
 
-        group_cfg = CUSTOMER_GROUPS.get(group_id)
         group_name = group_cfg.group_name if group_cfg else group_id
 
-        return ToolResult(True,
-            f"=== Research Started ===\n"
-            f"Group: {group_name} ({group_id})\n"
-            f"Level: {current_level} → {target_level}\n"
-            f"Cost: ${cost:,.0f} (deducted)\n"
-            f"Expected completion: day {expected_completion_day} (~{delay} days)\n"
-            f"Results will be delivered to your inbox when complete.\n"
-            f"New parameter accuracy will be: {noise_map[target_level]}",
-            data={'group_id': group_id, 'new_level': target_level,
-                  'expected_completion_day': expected_completion_day}
-        )
+        if is_refresh:
+            return ToolResult(True,
+                f"=== Research Started (Refresh) ===\n"
+                f"Group: {group_name} ({group_id})\n"
+                f"Level: {current_level} (refresh — market data will be updated on completion)\n"
+                f"Cost: ${cost:,.0f} (deducted)\n"
+                f"Expected completion: day {expected_completion_day} (~{delay} days)\n"
+                f"Results will be delivered to your inbox when complete.\n"
+                f"Market insights will be updated to conditions at completion time.",
+                data={'group_id': group_id, 'new_level': target_level,
+                      'expected_completion_day': expected_completion_day, 'is_refresh': True}
+            )
+        else:
+            return ToolResult(True,
+                f"=== Research Started ===\n"
+                f"Group: {group_name} ({group_id})\n"
+                f"Level: {current_level} → {target_level}\n"
+                f"Cost: ${cost:,.0f} (deducted)\n"
+                f"Expected completion: day {expected_completion_day} (~{delay} days)\n"
+                f"Results will be delivered to your inbox when complete.\n"
+                f"Market insights will be updated to conditions at completion time.\n"
+                f"New parameter accuracy will be: {noise_map[target_level]}",
+                data={'group_id': group_id, 'new_level': target_level,
+                      'expected_completion_day': expected_completion_day, 'is_refresh': False}
+            )
 
     def get_market_overview(self) -> ToolResult:
         """Get an overview of all known customer segments and their info levels.
@@ -4245,14 +4522,9 @@ os.chdir('{self.workspace_path}')
     def get_group_insights(self, group_id: str) -> ToolResult:
         """Get estimated parameters for a discovered customer group based on current info level.
 
-        Returns noisy estimates of group characteristics. Accuracy improves with higher info levels:
-        - Level 1: ±65% noise (rough estimates)
-        - Level 2: ±40% noise (basic research)
-        - Level 3: ±25% noise (detailed research)
-        - Level 4: ±15% noise (deep research)
-        - Level 5: ±5% noise (precision research)
-
-        Estimates are deterministic for a given group and info level (same query = same result).
+        Returns estimates frozen at the time of the last research_group() call for this group.
+        To get updated market data, call research_group() again (costs money).
+        Accuracy depends on info level (±65% at Level 1, ±5% at Level 5).
 
         Args:
             group_id: The group to get insights for (must be discovered, Level 1+)
@@ -4277,11 +4549,31 @@ os.chdir('{self.workspace_path}')
         }
         noise_pct = noise_map.get(info_level, 0.65)
 
-        # Deterministic noise: seeded by group_id + info_level + current_day so re-queries
-        # reflect changing market conditions (preference drift)
-        # V2.1: Added current_day to seed so noise varies over time, preventing the agent
-        # from getting stuck on one snapshot. Re-querying gives a fresh (noisy) view.
-        seed_str = f"{group_id}_insights_{info_level}_{self.current_day}"
+        # Use snapshot from last research_group call (frozen market data)
+        # If no snapshot exists (e.g. initial groups before any research), use current data
+        snapshot = self.conn.execute(
+            "SELECT snapshot_day, snapshot_c_max, snapshot_q_min, snapshot_market_cap FROM group_insight_snapshots WHERE group_id = ?",
+            (group_id,)
+        ).fetchone()
+
+        if snapshot:
+            effective_c_max = snapshot['snapshot_c_max']
+            effective_q_min = snapshot['snapshot_q_min']
+            grown_market_cap = snapshot['snapshot_market_cap']
+            snapshot_day = snapshot['snapshot_day']
+        else:
+            # No snapshot yet — use current data (backwards compat for initial groups)
+            from .database import get_group_parameters as _get_gp
+            drifted = _get_gp(self.conn, group_id)
+            effective_c_max = drifted['current_c_max_mean'] if drifted else group_cfg.c_max_mean
+            effective_q_min = drifted['current_q_min_mean'] if drifted else group_cfg.q_min_mean
+            grown_market_cap = group_cfg.base_market_cap * (1 + group_cfg.annual_cap_growth_rate * self.current_day / 365.0)
+            snapshot_day = self.current_day
+
+        # Deterministic noise: seeded by group_id + info_level + snapshot_day
+        # Noise is frozen at the time of last research_group call.
+        # To get fresh estimates, call research_group again (costs money).
+        seed_str = f"{group_id}_insights_{info_level}_{snapshot_day}"
         seed_val = int.from_bytes(seed_str.encode(), 'little') % (2**31)
         insight_rng = default_rng(seed_val)
 
@@ -4291,30 +4583,18 @@ os.chdir('{self.workspace_path}')
             return true_val * (1 + noise)
 
         # Build insights with ONLY realistically observable parameters
-        # A real CEO could learn these through market research, surveys, and analytics
         noise_label = f"±{int(noise_pct * 100)}%"
         segment = 'Enterprise' if group_cfg.is_enterprise else 'Individual'
 
         output = f"=== Group Insights: {group_cfg.group_name} ({group_id}) ===\n"
         output += f"Segment: {segment}\n"
-        output += f"Info Level: {info_level} (estimates accurate to {noise_label})\n\n"
-
-        # V2.1: Use drifted group parameters (current market state) instead of static config
-        # This allows the agent to detect preference drift by re-querying insights over time
-        from .database import get_group_parameters as _get_gp
-        drifted = _get_gp(self.conn, group_id)
-        effective_c_max = drifted['current_c_max_mean'] if drifted else group_cfg.c_max_mean
-        effective_q_min = drifted['current_q_min_mean'] if drifted else group_cfg.q_min_mean
+        output += f"Info Level: {info_level} (estimates accurate to {noise_label})\n"
+        output += f"Data from: day {snapshot_day}" + (" (use research_group to refresh)\n\n" if snapshot else " (initial — use research_group to get updated data)\n\n")
 
         # Realistically observable parameters:
-        # - Monthly budget (willingness to pay) — from pricing surveys, competitor analysis
-        # - Usage volume — from usage analytics, industry reports
-        # - Quality floor (q_min) — minimum quality needed even if product is free
         est_budget = apply_noise(effective_c_max)
         est_usage = apply_noise(group_cfg.usage_demand_mean)
         est_q_min = apply_noise(effective_q_min)
-        # Time-grown market cap: base * (1 + annual_growth * day/365)
-        grown_market_cap = group_cfg.base_market_cap * (1 + group_cfg.annual_cap_growth_rate * self.current_day / 365.0)
         est_market_cap = max(1, int(apply_noise(grown_market_cap)))
         est_growth_rate = max(0, apply_noise(group_cfg.annual_cap_growth_rate))
         est_lockin = max(0, apply_noise(group_cfg.lockin_penalty_mean))
@@ -4470,9 +4750,11 @@ os.chdir('{self.workspace_path}')
         }
 
         output += f"\nNote: All estimates have {noise_label} uncertainty at Level {info_level}.\n"
+        output += f"Data frozen at day {snapshot_day}. Call research_group('{group_id}') to refresh with current market data"
         if info_level < 5:
             next_noise = {2: '±40%', 3: '±25%', 4: '±15%', 5: '±5%'}[info_level + 1]
-            output += f"Use research_group('{group_id}') to upgrade to Level {info_level + 1} ({next_noise}).\n"
+            output += f" or upgrade to Level {info_level + 1} ({next_noise})"
+        output += ".\n"
 
         return ToolResult(True, output, data)
 
@@ -4556,12 +4838,17 @@ os.chdir('{self.workspace_path}')
             -rt.cost, f"R&D Tier {tier}: {rt.name} ({invocation_id})"
         )
 
+        # Path-independent RNG: seeded by (global_seed, "research", tier, invocation_count)
+        # so results depend only on which tier and how many times it's been started, not on other RNG usage
+        research_seed = hash((self.seed, "research", tier, count)) % (2**31)
+        research_rng = default_rng(research_seed)
+
         # Sample duration from Normal(mean_days, std_days), minimum 30 days
-        sampled_duration = max(30, int(self.rng.normal(rt.mean_days, rt.std_days)))
+        sampled_duration = max(30, int(research_rng.normal(rt.mean_days, rt.std_days)))
         completion_day = self.current_day + sampled_duration
 
         # Sample quality boost from Normal(mean_quality_boost, std_quality_boost), minimum 0.001
-        sampled_quality = max(0.001, self.rng.normal(rt.mean_quality_boost, rt.std_quality_boost))
+        sampled_quality = max(0.001, research_rng.normal(rt.mean_quality_boost, rt.std_quality_boost))
 
         # Create record
         self.conn.execute("""

@@ -25,6 +25,7 @@ _EXCLUDED_TOOLS = {
     'list_all_tables',
     'describe_tables',
     'get_tool_documentation',
+    'next_day',  # CLI command (novamind-operation next-day), not a Python API tool
 }
 
 # Map tool names to novamind_api module names
@@ -52,6 +53,7 @@ _TOOL_TO_MODULE = {
     'set_targeted_ops_spend': 'analytics',
     'set_targeted_dev_spend': 'analytics',
     'log_rationale': 'analytics',
+    'post_social_media': 'marketing',
 }
 
 

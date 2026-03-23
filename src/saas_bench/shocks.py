@@ -4,7 +4,7 @@ import sqlite3
 import json
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
-from numpy.random import Generator
+from numpy.random import Generator, PCG64
 
 from .config import ScenarioPack, MODEL_TIERS
 
@@ -23,8 +23,12 @@ class ShockManager:
 
     def __init__(self, conn: sqlite3.Connection, rng: Generator, scenario: ScenarioPack):
         self.conn = conn
-        self.rng = rng
         self.scenario = scenario
+        # Dedicated RNG for shocks — independent of main simulation RNG.
+        # Ensures demand surge timing/parameters are deterministic across runs
+        # regardless of agent actions (same pattern as _macro_rng, _competitor_rng).
+        shock_seed = int(rng.integers(0, 2**63))
+        self.rng = Generator(PCG64(shock_seed ^ 0x53484F43))  # XOR with 'SHOC'
 
     def check_and_generate_shocks(self, day: int) -> List[Shock]:
         """Check for new shock events on a given day."""

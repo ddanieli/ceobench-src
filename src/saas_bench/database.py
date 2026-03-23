@@ -159,6 +159,21 @@ TABLE_DOCS = {
             'influence_score': 'REAL — Customer influence weight',
         }
     },
+    'agent_social_media_posts': {
+        'description': 'Social media posts and replies authored by the agent (CEO). Use post_social_media tool to create.',
+        'columns': {
+            'agent_post_id': 'INTEGER PRIMARY KEY — Unique post ID',
+            'day': 'INTEGER — Day posted',
+            'content': 'TEXT — Post content (max 280 characters)',
+            'reply_to_post_id': 'INTEGER — If replying to a customer post, the post_id (NULL for original posts)',
+            'views': 'INTEGER — View count (updated next day)',
+            'comment_post_ids': 'TEXT — JSON list of post_ids from social_media_posts that are customer comments on this agent post (e.g. [101, 105, 108])',
+        },
+        'internal_columns': {
+            'effect_by_group': 'TEXT — JSON dict of group_id → effect score [-1.0, 1.0] from LLM judge (hidden)',
+            'views_by_group': 'TEXT — JSON dict of group_id → view count (hidden)',
+        }
+    },
     'enterprise_turns': {
         'description': 'Enterprise negotiation turns — each row is one message in a conversation. message_id is the unique identifier for each message.',
         'columns': {
@@ -203,16 +218,6 @@ TABLE_DOCS = {
         },
         'internal_columns': {
             'actual_completion_day': 'INTEGER — Actual completion day (hidden for non-completed projects)',
-        }
-    },
-    'competitor_events': {
-        'description': 'HIDDEN TABLE — Competitor product launches that raise user quality expectations',
-        'columns': {
-            'event_id': 'INTEGER PRIMARY KEY — Unique event ID',
-            'start_day': 'INTEGER — Day the competitor event occurred',
-            'boost_amount': 'REAL — How much expected quality was raised for all users',
-            'post_end_day': 'INTEGER — Last day of competitor-themed social media buzz',
-            'description': 'TEXT — Description of the competitor event',
         }
     },
     'macroeconomic_conditions': {
@@ -280,10 +285,10 @@ TABLE_DOCS = {
             'customer_id': 'INTEGER — Foreign key to customers',
             'group_id': 'TEXT — Customer group at time of recording',
             'ads_strength': 'REAL — Effective ads strength applied (0.0-1.0)',
-            'seat_count': 'INTEGER — Customer seat count',
             'revenue': 'REAL — Ad revenue generated for this customer on this day',
         },
         'internal_columns': {
+            'seat_count': 'INTEGER — Customer seat count (hidden from agent on ads_revenue table)',
             'sensitivity': 'REAL — Customer ads_return_sensitivity (hidden from agent)',
         }
     },
@@ -614,6 +619,16 @@ def init_database(db_path: Path) -> sqlite3.Connection:
             remaining_undiscovered INTEGER NOT NULL -- Undiscovered segments remaining after attempt
         );
 
+        -- Insight snapshots: frozen market data from last research_group call
+        -- get_group_insights reads from here instead of live data
+        CREATE TABLE IF NOT EXISTS group_insight_snapshots (
+            group_id TEXT PRIMARY KEY,
+            snapshot_day INTEGER NOT NULL,       -- Day when research_group was called
+            snapshot_c_max REAL NOT NULL,         -- Willingness to pay at snapshot time
+            snapshot_q_min REAL NOT NULL,         -- Quality floor at snapshot time
+            snapshot_market_cap REAL NOT NULL     -- Grown market cap at snapshot time
+        );
+
         -- Reputation history for analysis
         CREATE TABLE IF NOT EXISTS reputation_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -652,6 +667,7 @@ def init_database(db_path: Path) -> sqlite3.Connection:
             virality_score REAL NOT NULL DEFAULT 0.0,  -- Impact multiplier
             reputation_impact REAL NOT NULL DEFAULT 0.0,  -- Actual reputation change caused
             influence_score REAL NOT NULL DEFAULT 0.0,  -- V2.1: Group influence weight (HIDDEN)
+            reply_to_agent_post_id INTEGER,  -- Links customer reply to agent post (NULL for regular posts)
             FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
         );
 
@@ -886,6 +902,83 @@ def init_database(db_path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_et_active_thread_msgid
             ON enterprise_turns(thread_id, message_id DESC)
             WHERE closed = 0 AND _internal_status IS NULL;
+
+        -- =====================================================================
+        -- Hidden Snapshot Tables (for post-run analysis, invisible to agent)
+        -- =====================================================================
+
+        -- Daily snapshot of group-level spawning parameters + reputation + awareness
+        CREATE TABLE IF NOT EXISTS _hidden_group_params_history (
+            day INTEGER NOT NULL,
+            group_id TEXT NOT NULL,
+            current_c_max_mean REAL NOT NULL,
+            current_q_min_mean REAL NOT NULL,
+            current_q_max_mean REAL NOT NULL,
+            current_steepness_left_factor REAL NOT NULL,
+            reputation REAL NOT NULL,
+            awareness REAL NOT NULL,
+            PRIMARY KEY (day, group_id)
+        );
+
+        -- Daily snapshot of quality components per group × plan
+        -- Contains all variables needed to reconstruct delivered quality
+        CREATE TABLE IF NOT EXISTS _hidden_quality_snapshot (
+            day INTEGER NOT NULL,
+            group_id TEXT NOT NULL,
+            plan TEXT NOT NULL CHECK(plan IN ('A', 'B', 'C')),
+            base_product_quality REAL NOT NULL,
+            q_shared_bonus REAL NOT NULL,
+            q_group_bonus REAL NOT NULL,
+            tier INTEGER NOT NULL,
+            tier_multiplier REAL NOT NULL,
+            delivered_quality REAL NOT NULL,
+            PRIMARY KEY (day, group_id, plan)
+        );
+
+        -- Daily snapshot of avg satisfaction & subscriber counts per group
+        -- Enables plotting satisfaction trajectories and group health over time
+        CREATE TABLE IF NOT EXISTS _hidden_satisfaction_snapshot (
+            day INTEGER NOT NULL,
+            group_id TEXT NOT NULL,
+            active_subscribers INTEGER NOT NULL,
+            avg_satisfaction REAL NOT NULL,
+            avg_relationship REAL NOT NULL,
+            min_satisfaction REAL NOT NULL,
+            max_satisfaction REAL NOT NULL,
+            churned_today INTEGER NOT NULL DEFAULT 0,
+            new_today INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (day, group_id)
+        );
+
+        -- Hidden snapshot of all lead multipliers per day per group (for post-run analysis)
+        CREATE TABLE IF NOT EXISTS _hidden_lead_multiplier_snapshot (
+            day INTEGER NOT NULL,
+            group_id TEXT NOT NULL,
+            reputation_factor REAL NOT NULL,
+            demand_multiplier REAL NOT NULL,
+            cycle_mult REAL NOT NULL,
+            macro_lead_mult REAL NOT NULL,
+            social_media_mult REAL NOT NULL,
+            surge_mult REAL NOT NULL DEFAULT 1.0,
+            total_channel_leads REAL NOT NULL,
+            network_leads REAL NOT NULL,
+            daily_leads_expected REAL NOT NULL,
+            actual_leads INTEGER NOT NULL,
+            PRIMARY KEY (day, group_id)
+        );
+
+        -- Agent-authored social media posts & replies
+        CREATE TABLE IF NOT EXISTS agent_social_media_posts (
+            agent_post_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            day INTEGER NOT NULL,
+            content TEXT NOT NULL,                           -- Post text (max 280 chars)
+            reply_to_post_id INTEGER,                       -- NULL for original posts, post_id from social_media_posts for replies
+            effect_by_group TEXT NOT NULL DEFAULT '{}',      -- JSON: {group_id: float} — LLM judge score per group (HIDDEN)
+            views INTEGER NOT NULL DEFAULT 0,                -- Total view count (visible to agent)
+            views_by_group TEXT NOT NULL DEFAULT '{}',       -- JSON: {group_id: int} — views per group (HIDDEN)
+            comment_post_ids TEXT NOT NULL DEFAULT '[]'      -- JSON list of post_ids from social_media_posts that are comments on this agent post
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_social_posts_day ON agent_social_media_posts(day);
     """)
 
     # V2.3 migration: ads system + promotion system columns
@@ -907,6 +1000,24 @@ def init_database(db_path: Path) -> sqlite3.Connection:
             conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+    # Migration: add reply_to_agent_post_id to social_media_posts
+    try:
+        conn.execute("ALTER TABLE social_media_posts ADD COLUMN reply_to_agent_post_id INTEGER")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: add reasoning_by_group to agent_social_media_posts
+    try:
+        conn.execute("ALTER TABLE agent_social_media_posts ADD COLUMN reasoning_by_group TEXT NOT NULL DEFAULT '{}'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: add comment_post_ids to agent_social_media_posts
+    try:
+        conn.execute("ALTER TABLE agent_social_media_posts ADD COLUMN comment_post_ids TEXT NOT NULL DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # L8 migration: drop redundant daily_usage day index (PK already covers it)
     # and ensure new active-thread partial index exists on existing databases
@@ -1050,6 +1161,8 @@ def get_group_reputation(conn: sqlite3.Connection, group_id: str) -> float:
 def set_group_reputation(conn: sqlite3.Connection, group_id: str, reputation: float,
                          day: int, reason: str = None):
     """Set reputation for a customer group and log the change."""
+    # Floor reputation to 1e-3 so leads never fully zero out
+    reputation = max(reputation, 1e-3)
     # Update current reputation
     conn.execute("""
         INSERT OR REPLACE INTO group_reputation (group_id, reputation, last_updated_day)
@@ -1086,7 +1199,7 @@ def init_group_parameters(conn: sqlite3.Connection, customer_groups: dict):
             (group_id, current_c_max_mean, current_q_min_mean, current_q_max_mean,
              current_steepness_left_factor, last_drift_day)
             VALUES (?, ?, ?, ?, 1.0, 0)
-        """, (group_id, group.c_max_mean, group.q_min_mean, group.q_max_mean))
+        """, (group_id, group.c_max_mean, group.q_min_mean, group.q_min_mean + group.q_range_mean))
     conn.commit()
 
 
@@ -1276,13 +1389,14 @@ def add_social_media_post(conn: sqlite3.Connection, day: int, customer_id: int,
                           sentiment: str, content: str, likes: int = 0,
                           shares: int = 0, virality_score: float = 0.0,
                           reputation_impact: float = 0.0,
-                          influence_score: float = 0.0) -> int:
+                          influence_score: float = 0.0,
+                          reply_to_agent_post_id: int = None) -> int:
     """Add a social media post and return the post_id."""
     cursor = conn.execute("""
         INSERT INTO social_media_posts
-        (day, customer_id, sentiment, content, likes, shares, virality_score, reputation_impact, influence_score)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (day, customer_id, sentiment, content, likes, shares, virality_score, reputation_impact, influence_score))
+        (day, customer_id, sentiment, content, likes, shares, virality_score, reputation_impact, influence_score, reply_to_agent_post_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (day, customer_id, sentiment, content, likes, shares, virality_score, reputation_impact, influence_score, reply_to_agent_post_id))
     return cursor.lastrowid
 
 
@@ -1314,6 +1428,108 @@ def get_posts_by_sentiment(conn: sqlite3.Connection, sentiment: str,
         WHERE p.sentiment = ? AND p.day >= ?
         ORDER BY p.day DESC
     """, (sentiment, min_day)).fetchall()
+    return [dict(row) for row in result]
+
+
+# =========================================================================
+# Agent Social Media Posts
+# =========================================================================
+
+def add_agent_social_post(conn: sqlite3.Connection, day: int, content: str,
+                          reply_to_post_id: int = None,
+                          effect_by_group: dict = None,
+                          views: int = 0,
+                          views_by_group: dict = None,
+                          reasoning_by_group: dict = None) -> int:
+    """Add an agent-authored social media post and return the agent_post_id."""
+    cursor = conn.execute("""
+        INSERT INTO agent_social_media_posts
+        (day, content, reply_to_post_id, effect_by_group, views, views_by_group, reasoning_by_group)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (day, content, reply_to_post_id,
+          json.dumps(effect_by_group or {}),
+          views,
+          json.dumps(views_by_group or {}),
+          json.dumps(reasoning_by_group or {})))
+    return cursor.lastrowid
+
+
+def get_agent_social_posts(conn: sqlite3.Connection, limit: int = 50) -> list:
+    """Get all agent social media posts."""
+    result = conn.execute("""
+        SELECT * FROM agent_social_media_posts
+        ORDER BY day DESC, agent_post_id DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    return [dict(row) for row in result]
+
+
+def get_agent_posts_today(conn: sqlite3.Connection, day: int) -> int:
+    """Count how many agent posts were made on a given day."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM agent_social_media_posts WHERE day = ?", (day,)
+    ).fetchone()
+    return row[0] if row else 0
+
+
+def compute_social_media_multiplier(conn: sqlite3.Connection, current_day: int,
+                                     group_id: str,
+                                     viral_threshold: float = 0.6,
+                                     max_boost_per_post: float = 0.25,
+                                     half_life_days: float = 3.0) -> float:
+    """Compute the social media lead multiplier for a specific group.
+
+    Formula: multiplier = clamp(1.0 + sum(contribution_i * decay_i), 0.75, 1.25)
+    Only posts where |effect| >= viral_threshold contribute.
+    Each post contributes: sign(effect) * ((|effect| - threshold) / (1 - threshold)) * max_boost
+    Decay: exp(-age / half_life) with half_life=3 days (fast decay)
+
+    Returns: float multiplier in [0.75, 1.25]
+    """
+    import math
+    posts = conn.execute("""
+        SELECT day, effect_by_group FROM agent_social_media_posts
+        WHERE day <= ?
+    """, (current_day,)).fetchall()
+
+    total_contribution = 0.0
+    for post in posts:
+        age = current_day - post['day']
+        effects = json.loads(post['effect_by_group'])
+        effect = effects.get(group_id, 0.0)
+
+        if abs(effect) < viral_threshold:
+            continue
+
+        # Scale effect from [threshold, 1.0] to [0, 1] (or [-1, -threshold] to [-1, 0])
+        sign = 1.0 if effect >= 0 else -1.0
+        magnitude = (abs(effect) - viral_threshold) / (1.0 - viral_threshold)
+        contribution = sign * magnitude * max_boost_per_post
+
+        # Exponential decay (half_life=3 days — effects fade quickly)
+        decay = math.exp(-age * math.log(2) / half_life_days)
+        total_contribution += contribution * decay
+
+    # Clamp to [0.75, 1.25] range
+    return max(0.75, min(1.25, 1.0 + total_contribution))
+
+
+def get_recent_agent_posts_for_judge(conn: sqlite3.Connection, current_day: int,
+                                      lookback_days: int = 14) -> list:
+    """Get recent agent posts for LLM judge context (prevents repetition penalty).
+
+    For replies, includes the original customer post content via LEFT JOIN.
+    Returns up to 10 most recent posts.
+    """
+    min_day = max(0, current_day - lookback_days)
+    result = conn.execute("""
+        SELECT a.day, a.content, a.reply_to_post_id, s.content AS original_post_content
+        FROM agent_social_media_posts a
+        LEFT JOIN social_media_posts s ON a.reply_to_post_id = s.post_id
+        WHERE a.day >= ?
+        ORDER BY a.day DESC
+        LIMIT 10
+    """, (min_day,)).fetchall()
     return [dict(row) for row in result]
 
 

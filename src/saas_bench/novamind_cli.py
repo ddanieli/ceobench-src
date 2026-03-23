@@ -32,6 +32,29 @@ def _cmd_next_day(args):
     Prints the dashboard to stdout, which includes key metrics,
     yesterday's results, and inbox notifications.
 
+    **What happens each day (in order):**
+    1. Daily calculations run (if registered)
+    2. New customers spawned based on marketing + reputation
+    3. Customers at billing day re-evaluate plans (may switch/cancel)
+    4. Usage simulated, compute costs incurred
+    5. Service metrics calculated (latency, errors, outages)
+    6. Revenue collected from billing customers
+    7. Fixed costs deducted (capacity, operations, development, advertising)
+    8. Social posts generated based on satisfaction
+    9. Enterprise negotiations processed (customer replies, timeouts)
+    10. VC negotiations processed (counter-offers delivered)
+    11. Each predefined VC independently rolls for daily approach
+    12. Deal expiry processed (accepted-but-unsettled deals + stale threads)
+    13. Reputation updated
+    14. Dashboard built and returned
+
+    **Dashboard includes:** CASH, MRR, SUBSCRIBERS, yesterday's metrics
+    (revenue, costs, new/cancelled subs, usage, overload, outages), INBOX
+    (new notifications), and current config summary.
+
+    **NOTE:** The next_day call may take several minutes at large subscriber
+    counts. This is normal — just wait for the response.
+
     Exit code 0 on success, 1 on failure.
     """
     from .novamind_api._client import next_day
@@ -51,7 +74,7 @@ def operation_main():
         next-day    Advance the simulator to the next day
 
     Examples:
-        novamind-operation next-day
+        ./novamind-operation next-day
     """
     parser = argparse.ArgumentParser(
         prog='novamind-operation',
@@ -217,7 +240,7 @@ def get_cli_docs() -> str:
         Markdown-formatted CLI reference.
     """
     lines = [
-        "# NovaMind CLI Reference",
+        "# CEOBench CLI Reference",
         "",
         "## novamind-operation",
         "",
@@ -233,7 +256,7 @@ def get_cli_docs() -> str:
     ]
     for name, func in op_commands:
         doc = func.__doc__ or "No documentation."
-        lines.append(f"#### `novamind-operation {name}`")
+        lines.append(f"#### `./novamind-operation {name}`")
         lines.append("")
         lines.append(doc.strip())
         lines.append("")
