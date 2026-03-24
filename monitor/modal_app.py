@@ -178,7 +178,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <!-- Reputation + Q_min -->
     <div class="charts">
       <div class="chart-box"><h3>Reputation by Group</h3><canvas id="reputationChart"></canvas></div>
-      <div class="chart-box"><h3>Q_min by Group</h3><canvas id="qminChart"></canvas></div>
+      <div class="chart-box"><h3>Effective Q_min (New Leads) by Group</h3><canvas id="qminChart"></canvas></div>
     </div>
     <!-- Quality -->
     <div class="charts">
