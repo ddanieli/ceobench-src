@@ -285,11 +285,13 @@ class Simulator:
                                                overload: float, outage: bool) -> float:
         """Compute perceived quality using pre-fetched row data. No DB queries. (L3)
 
+        Includes ALL terms that affect daily satisfaction:
         delivered_quality = (base_product_quality + q_shared_bonus + q_group_bonus) × tier_multiplier
-        Q_perceived = delivered_quality + bonuses - penalties
+        Q_perceived = delivered_quality + relationship_bonus + stickiness_bonus
+                    - issue_penalty - quota_penalty - ads_penalty
 
-        sub_row must have: usage_demand, seat_count, group_id,
-                          relationship, start_day, daily_usage_rate
+        sub_row must have: usage_demand, seat_count, group_id, ads_quality_sensitivity,
+                          relationship, start_day, daily_usage_rate, open_issue_days
         """
         q_shared = self._cached_q_shared_per_plan.get(plan, 0.5)
 
@@ -311,6 +313,9 @@ class Simulator:
         days_subscribed = self.current_day - sub_row['start_day'] if sub_row['start_day'] else 0
         stickiness_bonus = self.config.stickiness_log_scale * math.log(1 + days_subscribed / 30) if days_subscribed > 0 else 0.0
 
+        # Issue penalty (unresolved support tickets)
+        issue_penalty = 0.03 * (sub_row['open_issue_days'] or 0)
+
         # Quota penalty
         daily_usage_rate = sub_row['daily_usage_rate'] if sub_row['daily_usage_rate'] else 0.0
         projected_monthly_usage = daily_usage_rate * 30
@@ -320,7 +325,18 @@ class Simulator:
             fulfillment_ratio = plan_quota / projected_monthly_usage
             quota_penalty = self.config.quota_dissatisfaction_scale * (1.0 - fulfillment_ratio)
 
-        return q_shared + relationship_bonus + stickiness_bonus - quota_penalty
+        # Ads penalty
+        ads_sensitivity = sub_row['ads_quality_sensitivity'] or 0.0
+        ads_penalty = 0.0
+        if ads_sensitivity > 0 and group_id:
+            ads_global = self.config.ads_strength_global
+            ads_group = self.config.ads_strength_by_group.get(group_id, 0.0)
+            strength = min(max(ads_global + ads_group, 0.0), 1.0)
+            if strength > 0:
+                effective_ads = math.log(1.0 + 9.0 * strength) / math.log(10.0)
+                ads_penalty = ads_sensitivity * effective_ads
+
+        return q_shared + relationship_bonus + stickiness_bonus - issue_penalty - quota_penalty - ads_penalty
 
     def _select_best_plan_inline(self, steepness_left: float, steepness_right: float,
                                   c_max: float, sub_row, config: dict,
@@ -1521,8 +1537,9 @@ class Simulator:
             SELECT s.subscription_id, s.customer_id, s.plan, s.listed_price, s.start_day,
                    s.daily_usage_rate,
                    c.steepness_left, c.steepness_right, c.c_max, c.group_id,
-                   c.usage_demand, c.seat_count,
+                   c.usage_demand, c.seat_count, c.ads_quality_sensitivity,
                    cs.current_steepness_left, cs.current_steepness_right, cs.current_c_max,
+                   cs.open_issue_days,
                    COALESCE(cs.current_q_max, c.q_max) as q_max,
                    COALESCE(cs.current_q_min, c.q_min) as q_min,
                    cs.satisfaction, cs.relationship
@@ -2815,9 +2832,10 @@ class Simulator:
         # L3: Fetch all columns needed for inline quality computation (no per-customer DB queries)
         subscribers = self.conn.execute("""
             SELECT s.customer_id, s.plan, s.listed_price, s.effective_price, s.start_day, s.daily_usage_rate,
-                   c.group_id, c.usage_demand, c.seat_count,
+                   c.group_id, c.usage_demand, c.seat_count, c.ads_quality_sensitivity,
                    c.steepness_left, c.steepness_right, c.c_max,
                    cs.current_steepness_left, cs.current_steepness_right, cs.current_c_max,
+                   cs.open_issue_days,
                    COALESCE(cs.current_q_max, c.q_max) as q_max,
                    COALESCE(cs.current_q_min, c.q_min) as q_min,
                    cs.plan_was_acceptable, cs.last_quality, cs.satisfaction, cs.last_satisfaction,
