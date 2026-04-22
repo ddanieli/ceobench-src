@@ -210,6 +210,14 @@ The agent should NOT run this directly — use ./novamind-operation instead.
 """
 import os
 import sys
+
+# Enforce PYTHONHASHSEED=0 so the simulator is deterministic across launches
+# at the same --seed. Python reads PYTHONHASHSEED at interpreter startup, so
+# if it's unset we must re-exec before any sim code loads.
+if os.environ.get("PYTHONHASHSEED") != "0":
+    os.environ["PYTHONHASHSEED"] = "0"
+    os.execv(sys.executable, [sys.executable, __file__, *sys.argv[1:]])
+
 from pathlib import Path
 
 # Add _engine/ to Python path so 'from saas_bench.X import Y' resolves to .pyc files
