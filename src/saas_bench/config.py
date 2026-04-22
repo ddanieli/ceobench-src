@@ -549,8 +549,8 @@ class BenchmarkConfig:
     # Magnitude: scales linearly from scale_min at day 1 to scale_max at (total_days - late_cutoff_days).
     # Boosts are blocked entirely before drift_grace_period_days and after (total_days - late_cutoff_days).
     # Early game = small disruptions, late game = major market shifts, very late = no more shocks.
-    competitor_event_mean_interval: int = 12      # v3.4a: 0.5× freq from v3.3z (was 6)
-    competitor_event_min_interval: int = 4        # v3.4a: 0.5× freq from v3.3z (was 2)
+    competitor_event_mean_interval: int = 8       # v3.4d: 1.5× freq from v3.4c (was 12)
+    competitor_event_min_interval: int = 3        # v3.4d: 1.5× freq from v3.4c (was 4)
     competitor_event_post_days: int = 3           # Days of competitor-themed social posts after event
     competitor_event_posts_per_day: int = 2       # Posts/day during event window
     # Boost distribution: lognormal(mu, sigma) — BASE values (1× magnitude)
@@ -751,7 +751,7 @@ class BenchmarkConfig:
 
     # === ISSUE RESOLUTION PARAMS ===
     issue_resolution_base_rate: float = 2.0  # Issues resolved per day at $0 ops spending
-    issue_resolution_ops_scale: float = 0.3  # v3.4b: 0.2→0.3. Additional issues resolved per $ ops spend per day
+    issue_resolution_ops_scale: float = 0.25  # v3.4d: 0.3→0.25. Additional issues resolved per $ ops spend per day
     quick_resolution_threshold_days: int = 2  # Max days for "quick" resolution bonus
     quick_resolution_boost_1day: float = 0.40  # Relationship boost for 1-day resolution
     quick_resolution_boost_2day: float = 0.30  # Relationship boost for 2-day resolution
