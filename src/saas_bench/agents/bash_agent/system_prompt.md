@@ -56,9 +56,10 @@ nm.pricing.set_usage_quotas(A=1000, B=5000, C=20000)
 nm.pricing.set_promotion(global_promotion=5.0, by_group={"E1": 10.0})
 
 # === Marketing & Ads ===
-nm.marketing.set_daily_spend(advertising=500, operations=200, development=1000)
-nm.marketing.set_ad_channel_spend(social_media=0.3, search_ads=0.3, linkedin=0.2, content_marketing=0.1, referral_program=0.1)
-nm.marketing.set_targeted_ad_spend(targeted_spend={"S1": {"social_media": 50}})
+# set_daily_spend handles ops + dev only. Ad spend is exclusively per-(channel, group)
+# via set_targeted_ad_spend. Format: {channel_id: {group_id: $/day}}.
+nm.marketing.set_daily_spend(operations=200, development=1000)
+nm.marketing.set_targeted_ad_spend(targeted_spend={"social_media": {"S1": 50}, "linkedin": {"E1": 200}})
 nm.marketing.set_ads_strength(global_strength=1.0, by_group={"S2": 1.5})
 nm.marketing.set_lead_promotion(global_promotion=5.0)
 nm.marketing.post_social_media(content="Exciting update!", reply_to_post_id=123)  # max 280 chars, 1/day
@@ -116,7 +117,7 @@ For full parameter details, types, return values, and examples — read the JSON
 ```bash
 # Read docs for a specific module
 cat docs/api/pricing.json     # set_prices, set_model_tiers, set_usage_quotas, set_promotion
-cat docs/api/marketing.json   # set_daily_spend, set_ad_channel_spend, set_targeted_ad_spend, set_ads_strength, set_lead_promotion, post_social_media
+cat docs/api/marketing.json   # set_daily_spend (ops/dev only), set_targeted_ad_spend, set_ads_strength, set_lead_promotion, post_social_media
 cat docs/api/enterprise.json  # send_enterprise_deal, reject_enterprise_deal
 cat docs/api/market.json      # research_market, research_group, get_market_overview, get_group_insights
 cat docs/api/research.json    # start_research_project, list_research_projects
@@ -206,15 +207,28 @@ Each week follows this pattern:
 4. **Take actions** — adjust pricing, spending, respond to deals, etc.
 5. **Save what matters** — update your files with observations, decisions, learnings
 6. **Log rationale** — `./novamind-operation python-c "import novamind_api as nm; nm.analytics.log_rationale('...')"`
-7. **Forecast + Advance** — `./novamind-operation next-week <cash_1wk> <cash_4wk> <cash_12wk>`
+7. **Forecast + Advance** — `./novamind-operation next-week <12 numbers>` (see below)
 
 **CRITICAL:** You MUST call `log_rationale` exactly once per week, before `next-week`.
 
-**CRITICAL:** `next-week` now requires 3 positional cash predictions in dollars:
-- `cash_1wk` — predicted cash 7 days from today
-- `cash_4wk` — predicted cash 28 days from today
-- `cash_12wk` — predicted cash 84 days from today
+**CRITICAL:** `next-week` now requires *12* positional cash forecasts in dollars — for each of FOUR horizons, submit a point estimate plus 95% CI lower and upper bounds:
 
-Example: `./novamind-operation next-week 1050000 1200000 1800000`
+| Position | Field | Meaning |
+|----------|-------|---------|
+| 1–3 | `cash_1wk_point  cash_1wk_lower  cash_1wk_upper`   | +7 days |
+| 4–6 | `cash_4wk_point  cash_4wk_lower  cash_4wk_upper`   | +28 days |
+| 7–9 | `cash_12wk_point cash_12wk_lower cash_12wk_upper` | +84 days |
+| 10–12 | `cash_26wk_point cash_26wk_lower cash_26wk_upper` | +182 days (~6 months) |
 
-You are evaluated on prediction accuracy (percent error at each horizon) in addition to realized cash. Form predictions from your internal model of growth, churn, costs, and competitor dynamics — don't guess.
+Constraint per horizon: `lower <= point <= upper`. Submit honest 95% intervals — wider intervals signal larger uncertainty; narrow them when you're confident.
+
+Example:
+```
+./novamind-operation next-week \
+    1050000 1000000 1100000 \
+    1200000 1050000 1400000 \
+    1800000 1400000 2300000 \
+    3000000 2000000 4500000
+```
+
+You are evaluated on (a) point-estimate percent error at each horizon, (b) CI coverage — does actual cash fall inside [lower, upper]? — and (c) sharpness (CI width relative to actual). Form forecasts from your internal model of growth, churn, costs, and competitor dynamics — don't guess.

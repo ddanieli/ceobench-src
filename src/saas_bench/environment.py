@@ -114,7 +114,7 @@ def build_weekly_dashboard(
         f"Model Tiers: A={config.get('tier_A', 1)}, B={config.get('tier_B', 2)}, C={config.get('tier_C', 3)}",
         f"Quotas: A={config.get('quota_A', 100)}, B={config.get('quota_B', 500)}, C={config.get('quota_C', 2000)} units/day",
         f"Capacity: Tier {config.get('capacity_tier', 0)}",
-        f"Daily Spend: Ads=${config.get('spend_advertising', 0):.0f}, Ops=${config.get('spend_operations', 0):.0f}, Dev=${config.get('spend_development', 0):.0f}",
+        f"Daily Spend: Ops=${config.get('spend_operations', 0):.0f}, Dev=${config.get('spend_development', 0):.0f} (ad spend is per (channel, group) — see set_targeted_ad_spend)",
     ])
 
     # Quality info — per discovered group, with all bonuses + tier multiplier
@@ -284,7 +284,6 @@ class SaaSBenchEnv:
         'set_prices',
         'set_model_tiers',
         'set_daily_spend',
-        'set_ad_channel_spend',
         'set_targeted_ad_spend',
         'set_targeted_ops_spend',
         'set_targeted_dev_spend',
@@ -458,10 +457,7 @@ class SaaSBenchEnv:
                 d = {k: args[k] for k in ('A', 'B', 'C') if k in args and args[k] is not None}
                 result = tool_method(d)
             elif tool_name == 'set_daily_spend':
-                d = {k: args[k] for k in ('advertising', 'operations', 'development') if k in args and args[k] is not None}
-                result = tool_method(d)
-            elif tool_name == 'set_ad_channel_spend':
-                d = {k: args[k] for k in ('social_media', 'search_ads', 'linkedin', 'content_marketing', 'referral_program') if k in args and args[k] is not None}
+                d = {k: args[k] for k in ('operations', 'development') if k in args and args[k] is not None}
                 result = tool_method(d)
             elif tool_name == 'set_targeted_ad_spend':
                 result = tool_method(args.get('targeted_spend', args))

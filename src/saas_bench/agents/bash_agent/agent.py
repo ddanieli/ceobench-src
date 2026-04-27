@@ -71,9 +71,11 @@ class BashAgent(BaseAgent):
         self.use_anthropic = client_type in ('Anthropic', 'AnthropicBedrock')
 
         # Detect if the endpoint supports OpenAI Responses API.
-        # Google's OpenAI-compat endpoint only supports chat.completions (not /responses).
+        # Only OpenAI's own endpoint implements /v1/responses. Google's OpenAI-compat
+        # and Together AI only expose /v1/chat/completions.
         base_url = str(getattr(client, 'base_url', '') or '')
-        self.supports_responses_api = 'generativelanguage.googleapis.com' not in base_url
+        _non_responses_hosts = ('generativelanguage.googleapis.com', 'api.together.xyz')
+        self.supports_responses_api = not any(h in base_url for h in _non_responses_hosts)
 
         # Build system prompt
         self.system_prompt = system_prompt or self._default_system_prompt()
@@ -331,8 +333,16 @@ class BashAgent(BaseAgent):
                     'max_completion_tokens': 16384,
                     'temperature': 1.0,
                 }
+                _is_together = 'api.together.xyz' in (str(getattr(self.client, 'base_url', '') or ''))
+                _is_together_deepseek = _is_together and 'deepseek' in self.model.lower()
                 if self.reasoning_effort:
                     api_kwargs['reasoning_effort'] = self.reasoning_effort
+                if _is_together_deepseek:
+                    # Together's DeepSeek-V4 thinking is gated on the chat-template flag,
+                    # not on `reasoning_effort` (which Together rejects with 400 for max,
+                    # 500 for medium, and silently ignores for low/high). The flag below
+                    # produces real chain-of-thought in `message.reasoning`.
+                    api_kwargs['extra_body'] = {'chat_template_kwargs': {'thinking': True}}
 
                 # Set hard wall-clock timeout via signal.alarm
                 old_handler = signal.signal(signal.SIGALRM, _llm_timeout_handler)
@@ -787,10 +797,13 @@ class BashAgent(BaseAgent):
         _VALID_EFFORTS = {'low', 'medium', 'high', 'xhigh', 'max'}
         api_kwargs = {
             'model': self.model,
-            'max_tokens': 32768,
+            'max_tokens': 128000,
             'system': system_content,
             'messages': messages,
             'tools': tools,
+            # output-128k beta lets Sonnet/Opus 4.x emit up to 128K output
+            # tokens (default cap is 64K). Required when max_tokens > 64000.
+            'extra_headers': {'anthropic-beta': 'output-128k-2025-02-19'},
         }
         use_streaming = False
         if self.reasoning_effort and self.reasoning_effort in _VALID_EFFORTS:

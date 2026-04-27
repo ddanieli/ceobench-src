@@ -288,7 +288,7 @@ INSTRUCTIONS:
 
 The next_week tool advances the simulation by one week (7 days) and returns the weekly dashboard, so keep calling it to progress through the simulation.
 
-Available tools: set_prices, set_model_tiers, set_daily_spend, set_ad_channel_spend, set_targeted_ad_spend, set_capacity_tier, set_usage_quotas, python_exec, log_rationale, next_week, and more.
+Available tools: set_prices, set_model_tiers, set_daily_spend (ops/dev only), set_targeted_ad_spend (per channel × group — the ONLY way to spend on ads), set_capacity_tier, set_usage_quotas, python_exec, log_rationale, next_week, and more.
 
 Start by analyzing Day 1 and making your first decisions!"""
 

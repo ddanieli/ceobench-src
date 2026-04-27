@@ -240,6 +240,18 @@ class BashAgentToolExecutor:
             raise ValueError(f"Path escapes workspace: {path_str}")
         return resolved
 
+    # Env vars that MUST never be passed into the agent sandbox. The DB key
+    # in particular is a hard secret — if the agent saw it, the .nmdb
+    # encryption is meaningless.
+    _FORBIDDEN_SANDBOX_ENV = frozenset({
+        'NMDB_KEY',
+    })
+
+    @classmethod
+    def _scrub_sandbox_env(cls, env: Dict[str, str]) -> Dict[str, str]:
+        """Drop any env var that must never enter the bwrap sandbox."""
+        return {k: v for k, v in env.items() if k not in cls._FORBIDDEN_SANDBOX_ENV}
+
     def _build_bwrap_cmd(self, command: str, ws: str, env: Dict[str, str]) -> list:
         """Build a bwrap command that sandboxes bash to the workspace.
 
@@ -252,6 +264,8 @@ class BashAgentToolExecutor:
         bwrap = shutil.which('bwrap')
         if not bwrap:
             return None  # Fall back to unsandboxed execution
+
+        env = self._scrub_sandbox_env(env)
 
         cmd = [bwrap]
 
@@ -284,10 +298,16 @@ class BashAgentToolExecutor:
         stdlib = sysconfig.get_paths()['stdlib']
         if os.path.isdir(stdlib):
             cmd.extend(['--ro-bind', stdlib, stdlib])
-        # Python binary itself
-        python_prefix = sys.prefix
-        if os.path.isdir(python_prefix):
-            cmd.extend(['--ro-bind', python_prefix, python_prefix])
+        # Python binary itself — bind both the venv prefix and the base
+        # install it symlinks to (sys.base_prefix). In a uv venv the venv's
+        # python3 is a symlink chain into the underlying miniconda install;
+        # without binding base_prefix the symlink dangles inside the sandbox
+        # and PATH lookup silently falls through to /usr/bin/python3 (the
+        # system 3.9, which can't load 3.13-compiled .pyc files from the
+        # novamind-operation zipapp).
+        for py_root in {sys.prefix, sys.base_prefix}:
+            if py_root and os.path.isdir(py_root):
+                cmd.extend(['--ro-bind', py_root, py_root])
 
         # The agent workspace — ONLY writable directory
         cmd.extend(['--bind', ws, ws])
@@ -323,14 +343,18 @@ class BashAgentToolExecutor:
         # Build a minimal, sandboxed environment.
         # Start from scratch — do NOT inherit os.environ (which contains
         # simulator source paths, home directory, etc.)
+        venv_bin_dir = os.path.join(sys.prefix, 'bin')
+        path_parts = [venv_bin_dir] if os.path.isdir(venv_bin_dir) else []
+        path_parts += ['/usr/local/bin', '/usr/bin', '/bin']
         env = {
-            'PATH': '/usr/local/bin:/usr/bin:/bin',
+            'PATH': ':'.join(path_parts),
             'HOME': ws,
             'TMPDIR': ws,
             'LANG': os.environ.get('LANG', 'en_US.UTF-8'),
             'TERM': os.environ.get('TERM', 'xterm'),
         }
         env.update(self.extra_env)
+        env = self._scrub_sandbox_env(env)
 
         # Try bwrap sandbox; fall back to basic Popen if unavailable
         bwrap_cmd = self._build_bwrap_cmd(command, ws, env)

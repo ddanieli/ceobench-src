@@ -168,105 +168,47 @@ TOOL_DOCS = {
     "set_daily_spend": {
         "name": "set_daily_spend",
         "category": "Marketing & Spend",
-        "description": "Set daily spending for advertising, operations, and development.",
+        "description": "Set daily spending for operations and development. Advertising spend is set via set_targeted_ad_spend (per channel × group) only.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "advertising": {"type": "number", "description": "Daily $ for ads"},
                 "operations": {"type": "number", "description": "Daily $ for ops"},
                 "development": {"type": "number", "description": "Daily $ for dev"}
             },
-            "required": ["advertising", "operations", "development"]
+            "required": ["operations", "development"]
         },
         "parameters": {
-            "advertising": {"type": "float", "description": "Daily advertising budget (non-negative)"},
             "operations": {"type": "float", "description": "Daily operations budget (non-negative)"},
             "development": {"type": "float", "description": "Daily development budget (non-negative)"}
         },
         "returns": {
-            "success": "Daily spend updated: advertising=$500, operations=$1000, development=$500",
+            "success": "Daily spend updated: operations=$1000, development=$500",
             "failure": "Missing spend for X / Spend for X cannot be negative"
         },
         "output_schema": {
             "updated": "Dict[str, float] — the spend changes applied (only keys you sent)",
-            "current": "Dict[str, float] — final spend {'advertising': float, 'operations': float, 'development': float}",
+            "current": "Dict[str, float] — final spend {'operations': float, 'development': float}",
             "_access": "result['current']['operations'] → current ops spend"
         },
         "impact": {
-            "advertising": "Generates new leads. Each channel has a fixed leads-per-$1000 rate per customer group. Use set_ad_channel_spend for channel allocation, set_targeted_ad_spend for per-group targeting.",
-            "operations": "CRITICAL: (1) REDUCES OUTAGE PROBABILITY - At $0: ~3% daily outage risk (~1/month). At $500: ~1.1% daily (~3/year). (2) Speeds up issue resolution. The global issue-resolution pool is partitioned by customer group: each group g draws Poisson((base_rate + scale_g × spend) × n_g / total_open_issues), where scale_g = 0.25 for individual groups (S*, D_S*) and 0.05 for enterprise groups (E*, D_E*). So $1 of ops spend resolves ~0.25 individual issues/day vs ~0.05 enterprise issues/day. WARNING: Without ops spending, frequent outages damage reputation and cause churn!",
+            "operations": "CRITICAL: (1) REDUCES OUTAGE PROBABILITY - At $0: ~3% daily outage risk (~1/month). At $500: ~1.1% daily (~3/year). (2) Speeds up issue resolution. The global issue-resolution pool is partitioned by customer group: each group g draws Poisson((base_rate + scale_g × spend) × n_g / total_open_issues), where scale_g = 0.3 for individual groups (S*, D_S*) and 0.05 for enterprise groups (E*, D_E*). So $1 of ops spend resolves ~0.3 individual issues/day vs ~0.05 enterprise issues/day. WARNING: Without ops spending, frequent outages damage reputation and cause churn!",
             "development": "Dev spending improves product quality (amplified by model tier). Global improvement = 0.006 × ln(1 + global_spend/5000) per day (applies to all groups). Targeted per-group improvement = 0.030 × ln(1 + targeted_spend/5000) per day (5× coefficient, applies to that group only, stacks with global). delivered_quality = (base_product_quality + q_shared_bonus + q_group_bonus) × tier_multiplier."
         },
         "example_call": {
             "tool": "set_daily_spend",
-            "arguments": {"advertising": 800, "operations": 1200, "development": 600}
+            "arguments": {"operations": 1200, "development": 600}
         },
-        "internal_notes": "Ops: outage_prob = 0.03 * exp(-0.002 * ops_spend). Issue resolution (global pool, partitioned by group): for each group g with n_g open issues, mean_g = (base_rate + scale_g * spend) * (n_g / total_open_issues); scale_g = 0.25 for individual groups (S*, D_S*), 0.05 for enterprise groups (E*, D_E*). Dev (global): quality_improvement = 0.006 * ln(1 + spend/5000). Dev (targeted per-group): group_improvement = 0.030 * ln(1 + spend/5000). Advertising: each channel has fixed leads_per_1000_dollars per group.",
+        "internal_notes": "Ops: outage_prob = 0.03 * exp(-0.002 * ops_spend). Issue resolution (global pool, partitioned by group): for each group g with n_g open issues, mean_g = (base_rate + scale_g * spend) * (n_g / total_open_issues); scale_g = 0.3 for individual groups (S*, D_S*), 0.05 for enterprise groups (E*, D_E*). Dev (global): quality_improvement = 0.006 * ln(1 + spend/5000). Dev (targeted per-group): group_improvement = 0.030 * ln(1 + spend/5000). Advertising is NOT a valid key here — use set_targeted_ad_spend.",
         "sample_io": {
             "success": [
-                {"label": "Set all three budgets", "input": {"advertising": 800, "operations": 1200, "development": 600}, "output": "Daily spend updated: advertising=$800, operations=$1200, development=$600"},
+                {"label": "Set both budgets", "input": {"operations": 1200, "development": 600}, "output": "Daily spend updated: operations=$1200, development=$600"},
                 {"label": "Only increase ops", "input": {"operations": 2000}, "output": "Daily spend updated: operations=$2000"},
-                {"label": "Cut ads to zero", "input": {"advertising": 0}, "output": "Daily spend updated: advertising=$0"}
+                {"label": "Cut dev to zero", "input": {"development": 0}, "output": "Daily spend updated: development=$0"}
             ],
             "failure": [
-                {"label": "Negative spend", "input": {"advertising": -100}, "output": "Spend for advertising cannot be negative"},
-                {"label": "Invalid category", "input": {"marketing": 500}, "output": "Invalid spend categories: {'marketing'}. Valid: {'advertising', 'operations', 'development'}"}
-            ]
-        }
-    },
-
-    "set_ad_channel_spend": {
-        "name": "set_ad_channel_spend",
-        "category": "Marketing & Spend",
-        "description": "Set per-channel advertising budget allocation as percentages. Allows targeting specific customer groups.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "social_media": {"type": "number"},
-                "search_ads": {"type": "number"},
-                "linkedin": {"type": "number"},
-                "content_marketing": {"type": "number"},
-                "referral_program": {"type": "number"}
-            }
-        },
-        "parameters": {
-            "channel_percentages": {
-                "type": "Dict[str, float]",
-                "description": "Dictionary with channel names and percentage allocations (0.0 to 1.0). Values are normalized to sum to 1.0.",
-                "channels": ["social_media", "search_ads", "linkedin", "content_marketing", "referral_program"]
-            }
-        },
-        "channel_info": {
-            "social_media": {"description": "Facebook, Instagram, TikTok ads - broad consumer reach"},
-            "search_ads": {"description": "Google/Bing search ads - intent-based targeting"},
-            "linkedin": {"description": "LinkedIn ads - professional/business audience"},
-            "content_marketing": {"description": "SEO, blogs, whitepapers - organic discovery"},
-            "referral_program": {"description": "Customer referral incentives - word-of-mouth"}
-        },
-        "returns": {
-            "success": "Ad channel allocation updated (total budget=$500/day):\n  \u2022 Social Media Ads: 30% ($150/day)\n  \u2022 Search Engine Ads: 30% ($150/day)\n  ...",
-            "failure": "Invalid channels: {X}. Valid: {...} / At least one channel must have non-zero percentage"
-        },
-        "output_schema": {
-            "allocations": "Dict[str, float] — normalized percentages (0-1) per channel",
-            "spend": "Dict[str, float] — actual $/day per channel",
-            "total_budget": "float — total advertising budget per day",
-            "_access": "result['spend']['linkedin'] → LinkedIn daily spend in $"
-        },
-        "impact": "Different channels reach different customer groups with varying effectiveness. Use to target specific segments.",
-        "example_call": {
-            "tool": "set_ad_channel_spend",
-            "arguments": {"social_media": 0.2, "search_ads": 0.3, "linkedin": 0.3, "content_marketing": 0.1, "referral_program": 0.1},
-        },
-        "sample_io": {
-            "success": [
-                {"label": "Distribute across all channels", "input": {"social_media": 0.2, "search_ads": 0.3, "linkedin": 0.3, "content_marketing": 0.1, "referral_program": 0.1}, "output": "Ad channel allocation updated (total budget=$500/day):\n  • Social Media Ads: 20% ($100/day)\n  • Search Engine Ads: 30% ($150/day)\n  • LinkedIn Ads: 30% ($150/day)\n  • Content Marketing: 10% ($50/day)\n  • Referral Program: 10% ($50/day)"},
-                {"label": "Focus on two channels only", "input": {"linkedin": 0.7, "content_marketing": 0.3}, "output": "Ad channel allocation updated (total budget=$500/day):\n  • LinkedIn Ads: 70% ($350/day)\n  • Content Marketing: 30% ($150/day)"},
-                {"label": "All budget to one channel", "input": {"search_ads": 1.0}, "output": "Ad channel allocation updated (total budget=$500/day):\n  • Search Engine Ads: 100% ($500/day)"}
-            ],
-            "failure": [
-                {"label": "Invalid channel name", "input": {"tiktok": 0.5, "search_ads": 0.5}, "output": "Invalid channels: {'tiktok'}. Valid: {'social_media', 'search_ads', 'linkedin', 'content_marketing', 'referral_program'}"},
-                {"label": "All zeros", "input": {"social_media": 0, "search_ads": 0}, "output": "At least one channel must have non-zero percentage"}
+                {"label": "Negative spend", "input": {"operations": -100}, "output": "Spend for operations cannot be negative"},
+                {"label": "Advertising no longer valid", "input": {"advertising": 500}, "output": "Invalid spend categories: {'advertising'}. Valid: {'operations', 'development'}. To spend on ads, use set_targeted_ad_spend."},
+                {"label": "Invalid category", "input": {"marketing": 500}, "output": "Invalid spend categories: {'marketing'}. Valid: {'operations', 'development'}"}
             ]
         }
     },
@@ -274,13 +216,13 @@ TOOL_DOCS = {
     "set_targeted_ad_spend": {
         "name": "set_targeted_ad_spend",
         "category": "Marketing & Spend",
-        "description": "Set ADDITIONAL per-group per-channel ad spend on top of the overall channel allocation. Allows precise targeting of specific customer groups via specific channels.",
+        "description": "Set per-(channel, group) ad spend. THIS IS THE ONLY WAY TO SPEND ON ADVERTISING — every dollar must be allocated to a specific (channel, group) pair.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "targeted_spend": {
                     "type": "object",
-                    "description": "{channel_id: {group_id: additional_$/day}}",
+                    "description": "{channel_id: {group_id: $/day}}",
                     "additionalProperties": {
                         "type": "object",
                         "additionalProperties": {"type": "number"}
@@ -292,30 +234,30 @@ TOOL_DOCS = {
         "parameters": {
             "targeted_spend": {
                 "type": "Dict[str, Dict[str, float]]",
-                "description": "Dictionary of {channel_id: {group_id: additional_dollars_per_day}}. This spend is ADDED to the normal channel allocation, not a replacement.",
+                "description": "Dictionary of {channel_id: {group_id: dollars_per_day}}. This is the FULL ad budget (not additive on top of any channel allocation — there is no channel allocation).",
                 "channels": ["social_media", "search_ads", "linkedin", "content_marketing", "referral_program"],
                 "groups": "S1-S3, E1-E3, and discovered groups (D_S01-D_S10, D_E01-D_E10)"
             }
         },
         "returns": {
-            "success": "Targeted ad spend updated (extra $300/day on top of channel allocation):\n  \u2022 LinkedIn Ads \u2192 E1: +$200/day\n  \u2022 LinkedIn Ads \u2192 E2: +$100/day",
+            "success": "Ad spend updated (total $300/day):\n  \u2022 LinkedIn Ads \u2192 E1: $200/day\n  \u2022 LinkedIn Ads \u2192 E2: $100/day",
             "failure": "Invalid channels: {X}. Valid: {...} / Invalid group IDs for channel 'X': {Y}"
         },
         "output_schema": {
             "targeted_spend": "Dict[str, Dict[str, float]] — {channel: {group: $/day}}",
-            "total_extra_per_day": "float — total additional ad spend per day",
-            "_access": "result['targeted_spend']['linkedin']['E1'] → E1's extra LinkedIn spend"
+            "total_per_day": "float — total ad spend per day",
+            "_access": "result['targeted_spend']['linkedin']['E1'] → E1's LinkedIn spend"
         },
-        "impact": "Extra dollars are deducted from cash daily as advertising cost. In lead generation, each (channel, group) pair gets its normal allocation PLUS the targeted amount. Use this to boost acquisition of high-value segments without changing the overall channel split.",
+        "impact": "Each (channel, group) pair generates leads at rate `spend × leads_per_1000_dollars[channel][group] / 1000`. Total ad spend is deducted from cash daily as advertising cost.",
         "example_call": {
             "tool": "set_targeted_ad_spend",
             "arguments": {"targeted_spend": {"linkedin": {"E1": 200, "E2": 100}, "content_marketing": {"S3": 50}}},
         },
         "sample_io": {
             "success": [
-                {"label": "Target two groups on LinkedIn", "input": {"targeted_spend": {"linkedin": {"E1": 200, "E2": 100}}}, "output": "Targeted ad spend updated (extra $300/day on top of channel allocation):\n  • LinkedIn Ads → E1: +$200/day\n  • LinkedIn Ads → E2: +$100/day"},
-                {"label": "Multi-channel targeting", "input": {"targeted_spend": {"linkedin": {"E1": 200}, "content_marketing": {"S3": 50}, "search_ads": {"D_S01": 100}}}, "output": "Targeted ad spend updated (extra $350/day on top of channel allocation):\n  • LinkedIn Ads → E1: +$200/day\n  • Content Marketing → S3: +$50/day\n  • Search Engine Ads → D_S01: +$100/day"},
-                {"label": "Clear all targeting (empty)", "input": {"targeted_spend": {}}, "output": "Targeted ad spend cleared. No additional per-group ad spend."}
+                {"label": "Target two groups on LinkedIn", "input": {"targeted_spend": {"linkedin": {"E1": 200, "E2": 100}}}, "output": "Ad spend updated (total $300/day):\n  • LinkedIn Ads → E1: $200/day\n  • LinkedIn Ads → E2: $100/day"},
+                {"label": "Multi-channel targeting", "input": {"targeted_spend": {"linkedin": {"E1": 200}, "content_marketing": {"S3": 50}, "search_ads": {"D_S01": 100}}}, "output": "Ad spend updated (total $350/day):\n  • LinkedIn Ads → E1: $200/day\n  • Content Marketing → S3: $50/day\n  • Search Engine Ads → D_S01: $100/day"},
+                {"label": "Clear all ad spend (empty)", "input": {"targeted_spend": {}}, "output": "Ad spend cleared. No advertising spend."}
             ],
             "failure": [
                 {"label": "Invalid channel", "input": {"targeted_spend": {"tiktok": {"S1": 100}}}, "output": "Invalid channels: {'tiktok'}. Valid: {'social_media', 'search_ads', 'linkedin', 'content_marketing', 'referral_program'}"},
@@ -2095,19 +2037,27 @@ class AgentTools:
         })
 
     def set_daily_spend(self, spend: Dict[str, float]) -> ToolResult:
-        """Set daily spending for advertising, operations, development. Only provided keys are changed.
+        """Set daily spending for operations and development. Only provided keys are changed.
 
         Args:
-            spend: Dict with any subset of keys 'advertising', 'operations', 'development'.
+            spend: Dict with any subset of keys 'operations', 'development'.
                    Omitted categories keep their current values.
+                   Note: advertising is NOT a valid key here — use set_targeted_ad_spend
+                   to set per-(channel, group) ad spend directly.
         """
         if not spend:
             return ToolResult(False, "Must provide at least one spend category")
 
-        valid_keys = {'advertising', 'operations', 'development'}
+        valid_keys = {'operations', 'development'}
         invalid = set(spend.keys()) - valid_keys
         if invalid:
-            return ToolResult(False, f"Invalid keys: {invalid}. Valid: {valid_keys}")
+            if 'advertising' in invalid:
+                return ToolResult(
+                    False,
+                    f"Invalid spend categories: {invalid}. Valid: {valid_keys}. "
+                    "To spend on ads, use set_targeted_ad_spend with {channel: {group: $/day}}."
+                )
+            return ToolResult(False, f"Invalid spend categories: {invalid}. Valid: {valid_keys}")
 
         for category, val in spend.items():
             if val is None or val < 0:
@@ -2119,38 +2069,12 @@ class AgentTools:
         ).fetchone()
 
         if current:
-            new_adv = spend.get('advertising', current['spend_advertising'])
             new_ops = spend.get('operations', current['spend_operations'])
             new_dev = spend.get('development', current['spend_development'])
 
-            # Auto-distribute advertising budget across channels
-            # If advertising budget changed, redistribute to channels using current ratios
-            # (or equal weight if no prior allocation)
-            if 'advertising' in spend:
-                old_channels = {
-                    'social_media': current['ad_spend_social_media'],
-                    'search_ads': current['ad_spend_search_ads'],
-                    'linkedin': current['ad_spend_linkedin'],
-                    'content_marketing': current['ad_spend_content_marketing'],
-                    'referral_program': current['ad_spend_referral_program'],
-                }
-                old_total = sum(old_channels.values())
-                if old_total > 0:
-                    # Preserve current ratios
-                    ratios = {k: v / old_total for k, v in old_channels.items()}
-                else:
-                    # Equal weight across all 5 channels
-                    ratios = {k: 0.2 for k in old_channels}
-                new_channel_spend = {k: ratios[k] * new_adv for k in old_channels}
-            else:
-                new_channel_spend = {
-                    'social_media': current['ad_spend_social_media'],
-                    'search_ads': current['ad_spend_search_ads'],
-                    'linkedin': current['ad_spend_linkedin'],
-                    'content_marketing': current['ad_spend_content_marketing'],
-                    'referral_program': current['ad_spend_referral_program'],
-                }
-
+            # spend_advertising and ad_spend_* are kept as legacy columns but ALWAYS
+            # written as 0 — advertising is now exclusively per-(channel, group) via
+            # set_targeted_ad_spend.
             self.conn.execute("""
                 INSERT OR REPLACE INTO config_history (
                     day, price_A, price_B, price_C,
@@ -2165,11 +2089,9 @@ class AgentTools:
                 self.current_day,
                 current['price_A'], current['price_B'], current['price_C'],
                 current['tier_A'], current['tier_B'], current['tier_C'],
-                new_adv, new_ops, new_dev,
+                0.0, new_ops, new_dev,
                 current['capacity_tier'],
-                new_channel_spend['social_media'], new_channel_spend['search_ads'],
-                new_channel_spend['linkedin'], new_channel_spend['content_marketing'],
-                new_channel_spend['referral_program'],
+                0.0, 0.0, 0.0, 0.0, 0.0,
                 current['quota_A'], current['quota_B'], current['quota_C']
             ))
             self.conn.commit()
@@ -2177,124 +2099,14 @@ class AgentTools:
         changed = ', '.join(f"{k}=${v:.0f}" for k, v in sorted(spend.items()))
         return ToolResult(True, f"Daily spend updated: {changed}", {
             'updated': {k: v for k, v in spend.items()},
-            'current': {'advertising': new_adv, 'operations': new_ops, 'development': new_dev},
+            'current': {'operations': new_ops, 'development': new_dev},
         })
 
-    def set_ad_channel_spend(self, channel_percentages: Dict[str, float]) -> ToolResult:
-        """Set per-channel advertising budget allocation as percentages.
-
-        Args:
-            channel_percentages: Dict with channel names and percentage allocations (0.0 to 1.0).
-                                 Only provided channels are updated; unprovided channels keep current allocation.
-                                 After merging, all values are normalized to sum to 1.0.
-                                 Channels: social_media, search_ads, linkedin, content_marketing, referral_program
-        """
-        if not channel_percentages:
-            return ToolResult(False, "Must provide at least one channel allocation")
-
-        valid_channels = set(AD_CHANNELS.keys())
-        provided_channels = set(channel_percentages.keys())
-
-        # Validate channels
-        invalid = provided_channels - valid_channels
-        if invalid:
-            return ToolResult(
-                False,
-                f"Invalid channels: {invalid}. Valid: {valid_channels}"
-            )
-
-        # Validate percentages are non-negative
-        for channel, pct in channel_percentages.items():
-            if pct is None or pct < 0:
-                return ToolResult(False, f"Percentage for {channel} must be non-negative")
-
-        # Get current config
-        current = self.conn.execute(
-            "SELECT * FROM config_history ORDER BY day DESC LIMIT 1"
-        ).fetchone()
-
-        if not current:
-            return ToolResult(False, "No current configuration found")
-
-        # Get total advertising budget
-        total_advertising = current['spend_advertising']
-
-        # Compute current percentages from existing spend amounts
-        current_spend = {
-            'social_media': current['ad_spend_social_media'],
-            'search_ads': current['ad_spend_search_ads'],
-            'linkedin': current['ad_spend_linkedin'],
-            'content_marketing': current['ad_spend_content_marketing'],
-            'referral_program': current['ad_spend_referral_program'],
-        }
-        current_total = sum(current_spend.values())
-        if current_total > 0:
-            current_pcts = {k: v / current_total for k, v in current_spend.items()}
-        else:
-            # If no prior allocation, default to equal split
-            current_pcts = {k: 0.2 for k in current_spend}
-
-        # Merge: provided channels override, others keep current percentage
-        percentages = {k: channel_percentages.get(k, current_pcts[k]) for k in valid_channels}
-
-        # Normalize to sum to 1.0
-        total_pct = sum(percentages.values())
-        if total_pct == 0:
-            return ToolResult(False, "At least one channel must have a non-zero percentage")
-
-        normalized = {k: v / total_pct for k, v in percentages.items()}
-
-        # Convert percentages to actual spend amounts
-        new_spend = {k: v * total_advertising for k, v in normalized.items()}
-
-        # Update config with all values
-        self.conn.execute("""
-            INSERT OR REPLACE INTO config_history (
-                day, price_A, price_B, price_C,
-                tier_A, tier_B, tier_C,
-                spend_advertising, spend_operations, spend_development,
-                capacity_tier,
-                ad_spend_social_media, ad_spend_search_ads, ad_spend_linkedin,
-                ad_spend_content_marketing, ad_spend_referral_program,
-                quota_A, quota_B, quota_C
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            self.current_day,
-            current['price_A'], current['price_B'], current['price_C'],
-            current['tier_A'], current['tier_B'], current['tier_C'],
-            total_advertising, current['spend_operations'], current['spend_development'],
-            current['capacity_tier'],
-            new_spend['social_media'], new_spend['search_ads'], new_spend['linkedin'],
-            new_spend['content_marketing'], new_spend['referral_program'],
-            current['quota_A'], current['quota_B'], current['quota_C']
-        ))
-        self.conn.commit()
-
-        # Build summary — show only changed channels
-        summary_parts = []
-        for channel in sorted(channel_percentages.keys()):
-            channel_name = AD_CHANNELS[channel].name
-            pct = normalized[channel]
-            amount = new_spend[channel]
-            summary_parts.append(f"{channel_name}: {pct:.0%} (${amount:.0f}/day)")
-
-        return ToolResult(
-            True,
-            f"Ad channel allocation updated (total budget=${total_advertising:.0f}/day):\n" +
-            '\n'.join(f"  • {p}" for p in summary_parts),
-            {'allocations': {k: round(v, 4) for k, v in normalized.items()},
-             'spend': {k: round(v, 2) for k, v in new_spend.items()},
-             'total_budget': total_advertising},
-        )
-
     def set_targeted_ad_spend(self, targeted_spend: Dict[str, Dict[str, float]]) -> ToolResult:
-        """Set additional per-group per-channel ad spend.
-
-        This is ADDITIONAL to the overall channel allocation (set_ad_channel_spend).
-        Use it to boost spend on specific (channel, group) pairs.
+        """Set per-(channel, group) ad spend. This is the ONLY way to spend on ads.
 
         Args:
-            targeted_spend: {channel_id: {group_id: additional_dollars_per_day}}
+            targeted_spend: {channel_id: {group_id: dollars_per_day}}
                 Example: {"linkedin": {"E1": 200, "E2": 100}}
         """
         valid_channels = set(AD_CHANNELS.keys())
@@ -2356,8 +2168,8 @@ class AgentTools:
         # the actual config object holds the state, no DB column needed)
         # The simulation reads from self.config.targeted_ad_spend directly
 
-        # Calculate total extra cost
-        total_extra = sum(
+        # Calculate total daily ad cost
+        total_per_day = sum(
             sum(groups.values())
             for groups in targeted_spend.values()
         )
@@ -2367,19 +2179,18 @@ class AgentTools:
         for channel_id, groups in targeted_spend.items():
             channel_name = AD_CHANNELS[channel_id].name
             for group_id, amount in groups.items():
-                summary_parts.append(f"  • {channel_name} → {group_id}: +${amount:.0f}/day")
+                summary_parts.append(f"  • {channel_name} → {group_id}: ${amount:.0f}/day")
 
-        result_msg = f"Targeted ad spend updated (extra ${total_extra:.0f}/day on top of channel allocation):\n"
         if summary_parts:
-            result_msg += '\n'.join(summary_parts)
+            result_msg = f"Ad spend updated (total ${total_per_day:.0f}/day):\n" + '\n'.join(summary_parts)
         else:
-            result_msg += "  (no targeted spend set — all spend comes from channel allocation)"
+            result_msg = "Ad spend cleared. No advertising spend."
 
         record_config_override(self.conn, self.current_day, 'set_targeted_ad_spend', 'targeted_ad_spend',
                                {'targeted_spend': targeted_spend})
         return ToolResult(True, result_msg, {
             'targeted_spend': targeted_spend,
-            'total_extra_per_day': total_extra,
+            'total_per_day': total_per_day,
         })
 
     def set_targeted_ops_spend(

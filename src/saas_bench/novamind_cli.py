@@ -26,44 +26,42 @@ def _get_workspace() -> Path:
 # =========================================================================
 
 def _cmd_next_week(args):
-    """Advance the simulator by one week (7 days) — REQUIRES cash predictions.
+    """Advance the simulator by one week (7 days) — REQUIRES cash predictions
+    at four horizons, each with point estimate + 95% CI bounds.
 
     Usage:
-        novamind-operation next-week <cash_1wk> <cash_4wk> <cash_12wk>
+        novamind-operation next-week \\
+            <c1_pt> <c1_lo> <c1_hi>  \\
+            <c4_pt> <c4_lo> <c4_hi>  \\
+            <c12_pt> <c12_lo> <c12_hi>  \\
+            <c26_pt> <c26_lo> <c26_hi>
 
     Arguments (all required, all numeric, in dollars):
-        cash_1wk   Predicted cash 1 week from today (+7 days).
-        cash_4wk   Predicted cash 4 weeks from today (+28 days).
-        cash_12wk  Predicted cash 12 weeks from today (+84 days).
+        cash_1wk_point    Point estimate of cash 1 week from today (+7 days).
+        cash_1wk_lower    95% CI lower bound for the +7-day forecast.
+        cash_1wk_upper    95% CI upper bound for the +7-day forecast.
+        cash_4wk_point    Point estimate of cash +28 days.
+        cash_4wk_lower    95% CI lower bound for +28 days.
+        cash_4wk_upper    95% CI upper bound for +28 days.
+        cash_12wk_point   Point estimate of cash +84 days.
+        cash_12wk_lower   95% CI lower bound for +84 days.
+        cash_12wk_upper   95% CI upper bound for +84 days.
+        cash_26wk_point   Point estimate of cash 6 months from today (+182 days).
+        cash_26wk_lower   95% CI lower bound for +182 days.
+        cash_26wk_upper   95% CI upper bound for +182 days.
 
-    All three predictions are recorded at submission time and scored on
-    percent error `(predicted - actual) / actual` once actual cash is known.
-    You are evaluated on prediction accuracy at each horizon in addition
-    to realized cash.
+    Constraints (per horizon): ``lower <= point <= upper``. The server
+    returns 400 if violated or if any field is missing/non-numeric.
+
+    Predictions are recorded at submission time and scored on percent error
+    `(point - actual) / actual` once actual cash is known. CI bounds are
+    scored on coverage (does the actual fall inside [lower, upper]?) and
+    sharpness (interval width / actual). You are evaluated on prediction
+    accuracy + calibration at each horizon in addition to realized cash.
 
     Calls the API server to step the simulation forward by one week.
     Prints the dashboard to stdout, which includes key metrics,
     this week's results, and inbox notifications.
-
-    **What happens each day (in order):**
-    1. Daily calculations run (if registered)
-    2. New customers spawned based on marketing + reputation
-    3. Customers at billing day re-evaluate plans (may switch/cancel)
-    4. Usage simulated, compute costs incurred
-    5. Service metrics calculated (latency, errors, outages)
-    6. Revenue collected from billing customers
-    7. Fixed costs deducted (capacity, operations, development, advertising)
-    8. Social posts generated based on satisfaction
-    9. Enterprise negotiations processed (customer replies, timeouts)
-    10. VC negotiations processed (counter-offers delivered)
-    11. Each predefined VC independently rolls for daily approach
-    12. Deal expiry processed (accepted-but-unsettled deals + stale threads)
-    13. Reputation updated
-    14. Dashboard built and returned
-
-    **Dashboard includes:** CASH, MRR, SUBSCRIBERS, yesterday's metrics
-    (revenue, costs, new/cancelled subs, usage, overload, outages), INBOX
-    (new notifications), and current config summary.
 
     **NOTE:** The next_week call may take several minutes at large subscriber
     counts. This is normal — just wait for the response.
@@ -72,9 +70,10 @@ def _cmd_next_week(args):
     """
     from .novamind_api._client import next_week
     predictions = {
-        "cash_1wk": float(args.cash_1wk),
-        "cash_4wk": float(args.cash_4wk),
-        "cash_12wk": float(args.cash_12wk),
+        "cash_1wk":  {"point": float(args.cash_1wk_point),  "lower": float(args.cash_1wk_lower),  "upper": float(args.cash_1wk_upper)},
+        "cash_4wk":  {"point": float(args.cash_4wk_point),  "lower": float(args.cash_4wk_lower),  "upper": float(args.cash_4wk_upper)},
+        "cash_12wk": {"point": float(args.cash_12wk_point), "lower": float(args.cash_12wk_lower), "upper": float(args.cash_12wk_upper)},
+        "cash_26wk": {"point": float(args.cash_26wk_point), "lower": float(args.cash_26wk_lower), "upper": float(args.cash_26wk_upper)},
     }
     try:
         result = next_week(predictions=predictions)
@@ -90,10 +89,15 @@ def operation_main():
 
     Commands:
         next-week   Advance the simulation by one week (7 days).
-                    REQUIRES 3 cash predictions as positional args.
+                    REQUIRES 12 numeric args: for each of 4 horizons
+                    (+7d, +28d, +84d, +182d), submit point + 95% CI low/high.
 
-    Examples:
-        ./novamind-operation next-week 1050000 1200000 1800000
+    Example:
+        ./novamind-operation next-week \\
+            1050000 1000000 1100000 \\
+            1200000 1050000 1400000 \\
+            1800000 1400000 2300000 \\
+            3000000 2000000 4500000
     """
     parser = argparse.ArgumentParser(
         prog='novamind-operation',
@@ -101,17 +105,22 @@ def operation_main():
     )
     subparsers = parser.add_subparsers(dest='command', required=True)
 
-    # next-week (requires predictions)
     sub_next = subparsers.add_parser(
         'next-week',
-        help='Advance by 7 days. Requires 3 cash predictions (+7d, +28d, +84d).',
+        help='Advance by 7 days. Requires 12 cash forecasts: point + 95%% CI low/high at +7d/+28d/+84d/+182d.',
     )
-    sub_next.add_argument('cash_1wk', type=float,
-                          help='Predicted cash 1 week from today (+7 days)')
-    sub_next.add_argument('cash_4wk', type=float,
-                          help='Predicted cash 4 weeks from today (+28 days)')
-    sub_next.add_argument('cash_12wk', type=float,
-                          help='Predicted cash 12 weeks from today (+84 days)')
+    sub_next.add_argument('cash_1wk_point',  type=float, help='Point estimate of cash +7 days')
+    sub_next.add_argument('cash_1wk_lower',  type=float, help='95%% CI lower bound, +7 days')
+    sub_next.add_argument('cash_1wk_upper',  type=float, help='95%% CI upper bound, +7 days')
+    sub_next.add_argument('cash_4wk_point',  type=float, help='Point estimate of cash +28 days')
+    sub_next.add_argument('cash_4wk_lower',  type=float, help='95%% CI lower bound, +28 days')
+    sub_next.add_argument('cash_4wk_upper',  type=float, help='95%% CI upper bound, +28 days')
+    sub_next.add_argument('cash_12wk_point', type=float, help='Point estimate of cash +84 days')
+    sub_next.add_argument('cash_12wk_lower', type=float, help='95%% CI lower bound, +84 days')
+    sub_next.add_argument('cash_12wk_upper', type=float, help='95%% CI upper bound, +84 days')
+    sub_next.add_argument('cash_26wk_point', type=float, help='Point estimate of cash +182 days (~6 months)')
+    sub_next.add_argument('cash_26wk_lower', type=float, help='95%% CI lower bound, +182 days')
+    sub_next.add_argument('cash_26wk_upper', type=float, help='95%% CI upper bound, +182 days')
     sub_next.set_defaults(func=_cmd_next_week)
 
     args = parser.parse_args()

@@ -186,8 +186,8 @@ python {cli_tool} next_week
 # Set prices for plans A, B, C
 python {cli_tool} set_prices --A 29 --B 79 --C 199
 
-# Set daily spending
-python {cli_tool} set_daily_spend --ads 1000 --ops 500 --dev 500
+# Set daily ops/dev spending (ad spend is per (channel, group) only via the python API)
+python {cli_tool} set_daily_spend --ops 500 --dev 500
 
 # Set capacity tier (0-3)
 python {cli_tool} set_capacity --tier 1
@@ -220,7 +220,7 @@ IMPORTANT: Use bash commands to interact with the game. The CLI tool is at:
 
 Example commands:
 python {cli_tool} status
-python {cli_tool} set_daily_spend --ads 5000 --ops 1000 --dev 1000
+python {cli_tool} set_daily_spend --ops 1000 --dev 1000
 python {cli_tool} next_week
 
 Current status:

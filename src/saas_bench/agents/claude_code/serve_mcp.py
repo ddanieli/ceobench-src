@@ -380,7 +380,6 @@ class SaaSBenchMCPServer:
             "set_prices": lambda args: tools.set_prices(args),
             "set_model_tiers": lambda args: tools.set_model_tiers(args),
             "set_daily_spend": lambda args: tools.set_daily_spend(args),
-            "set_ad_channel_spend": lambda args: tools.set_ad_channel_spend(args),
             "set_targeted_ad_spend": lambda args: tools.set_targeted_ad_spend(args.get("targeted_spend", args)),
             "set_targeted_ops_spend": lambda args: tools.set_targeted_ops_spend(args.get("targeted_spend", args)),
             "set_targeted_dev_spend": lambda args: tools.set_targeted_dev_spend(args.get("targeted_spend", args)),

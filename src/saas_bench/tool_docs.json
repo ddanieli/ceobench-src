@@ -2830,10 +2830,29 @@
   "next_week": {
     "name": "next_week",
     "category": "Simulation Control",
-    "description": "Advance the simulation by one week (7 days) and receive the weekly dashboard. NOTE: This call may take a long time (minutes) at large subscriber counts as the simulator processes billing, churn, usage, and reputation for every customer. This is normal \u2014 just wait for the response.",
+    "description": "Advance the simulation by one week (7 days) and receive the weekly dashboard. REQUIRES cash forecasts at FOUR horizons (+7d, +28d, +84d, +182d~6mo); for each horizon submit a point estimate plus 95% CI lower and upper bounds (12 numbers total). Constraint per horizon: lower <= point <= upper. Scored on point percent error, CI coverage (does actual cash fall inside [lower, upper]?), and sharpness (interval width). NOTE: This call may take minutes at large subscriber counts \u2014 just wait for the response.",
     "inputSchema": {
       "type": "object",
-      "properties": {}
+      "properties": {
+        "cash_1wk_point":  {"type": "number", "description": "Point estimate of cash +7 days (dollars)"},
+        "cash_1wk_lower":  {"type": "number", "description": "95% CI lower bound, +7 days"},
+        "cash_1wk_upper":  {"type": "number", "description": "95% CI upper bound, +7 days"},
+        "cash_4wk_point":  {"type": "number", "description": "Point estimate of cash +28 days"},
+        "cash_4wk_lower":  {"type": "number", "description": "95% CI lower bound, +28 days"},
+        "cash_4wk_upper":  {"type": "number", "description": "95% CI upper bound, +28 days"},
+        "cash_12wk_point": {"type": "number", "description": "Point estimate of cash +84 days"},
+        "cash_12wk_lower": {"type": "number", "description": "95% CI lower bound, +84 days"},
+        "cash_12wk_upper": {"type": "number", "description": "95% CI upper bound, +84 days"},
+        "cash_26wk_point": {"type": "number", "description": "Point estimate of cash +182 days (~6 months)"},
+        "cash_26wk_lower": {"type": "number", "description": "95% CI lower bound, +182 days"},
+        "cash_26wk_upper": {"type": "number", "description": "95% CI upper bound, +182 days"}
+      },
+      "required": [
+        "cash_1wk_point", "cash_1wk_lower", "cash_1wk_upper",
+        "cash_4wk_point", "cash_4wk_lower", "cash_4wk_upper",
+        "cash_12wk_point", "cash_12wk_lower", "cash_12wk_upper",
+        "cash_26wk_point", "cash_26wk_lower", "cash_26wk_upper"
+      ]
     },
     "parameters": {},
     "returns": {
@@ -2861,7 +2880,12 @@
     "impact": "This is the main action that advances time. All configuration changes take effect when next_week is called.",
     "example_call": {
       "tool": "next_week",
-      "arguments": {}
+      "arguments": {
+        "cash_1wk_point":  1050000, "cash_1wk_lower":  1000000, "cash_1wk_upper":  1100000,
+        "cash_4wk_point":  1200000, "cash_4wk_lower":  1050000, "cash_4wk_upper":  1400000,
+        "cash_12wk_point": 1800000, "cash_12wk_lower": 1400000, "cash_12wk_upper": 2300000,
+        "cash_26wk_point": 3000000, "cash_26wk_lower": 2000000, "cash_26wk_upper": 4500000
+      }
     },
     "internal_notes": "Full simulation step order: daily_calcs \u2192 shocks/events \u2192 lead_generation \u2192 billing_cycle (re-evaluate, churn, renew, bill) \u2192 usage_sim \u2192 service_metrics \u2192 cost_accounting \u2192 social_posts \u2192 enterprise_negotiation_processing \u2192 reputation_update \u2192 dashboard_build. Hidden state updated: customer_state (satisfaction, relationship), group_reputation, group_awareness, group_parameters (drift).",
     "sample_io": {

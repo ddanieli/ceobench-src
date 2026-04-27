@@ -260,6 +260,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .run-card:hover, .run-card.active { border-color: var(--accent); }
   .run-card .label { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
   .run-card .meta { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+  .agent-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; text-transform: uppercase; }
+  .agent-badge.bash { background: #0366d6; color: #fff; }
+  .agent-badge.codex { background: #6f42c1; color: #fff; }
   .run-card .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 13px; }
   .run-card .stats .val { font-weight: 600; }
   .run-card .stats .val.cash { color: var(--green); }
@@ -457,8 +460,9 @@ function renderOverview() {
   let tbody = '';
   for (const r of allRuns) {
     const p = pct(r.current_day || 0, r.total_days || 1095);
+    const agentBadge = r.agent_type ? `<span class="agent-badge ${r.agent_type==='codex'?'codex':'bash'}">${r.agent_type==='codex'?'CODEX':'BASH'}</span>` : '';
     tbody += `<tr style="cursor:pointer" onclick="selectRun('${r.run_id}')">
-      <td><strong>${esc(r.label)}</strong><br><span style="color:var(--text2);font-size:11px">${r.run_id}</span></td>
+      <td>${agentBadge}<strong>${esc(r.label)}</strong><br><span style="color:var(--text2);font-size:11px">${r.run_id}</span></td>
       <td style="font-size:12px">${esc(r.model)}</td>
       <td class="num">${r.current_day || '—'}</td>
       <td><div style="display:flex;align-items:center;gap:8px;">
@@ -478,8 +482,9 @@ function renderOverview() {
   let cards = '';
   for (const r of allRuns) {
     const p = pct(r.current_day || 0, r.total_days || 1095);
+    const cardBadge = r.agent_type ? `<span class="agent-badge ${r.agent_type==='codex'?'codex':'bash'}">${r.agent_type==='codex'?'CODEX':'BASH'}</span>` : '';
     cards += `<div class="run-card ${currentRun===r.run_id?'active':''}" onclick="selectRun('${r.run_id}')">
-      <div class="label">${esc(r.label)}</div>
+      <div class="label">${cardBadge}${esc(r.label)}</div>
       <div class="meta">${esc(r.model)} · seed ${r.seed} · ${r.run_id}</div>
       <div class="stats">
         <div>Cash: <span class="val cash">${fmtCash(r.cash)}</span></div>

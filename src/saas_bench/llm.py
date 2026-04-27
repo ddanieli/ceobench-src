@@ -133,9 +133,8 @@ You can call any tool infinitely within a week. Call `next_week` to proceed to t
 
 | Tool | Description |
 |------|-------------|
-| `set_daily_spend` | Set daily spending for advertising, operations, and development |
-| `set_ad_channel_spend` | Allocate advertising budget across channels (social media, search ads, LinkedIn, content marketing, referral program) |
-| `set_targeted_ad_spend` | Set ADDITIONAL per-group per-channel ad spend on top of channel allocation (e.g. extra $200/day on LinkedIn for E1) |
+| `set_daily_spend` | Set daily spending for operations and development (not advertising) |
+| `set_targeted_ad_spend` | Set per-(channel, group) ad spend — the ONLY way to spend on ads. Format: `{channel: {group: $/day}}` |
 
 ### Enterprise & VC Deals
 
@@ -286,7 +285,7 @@ Use the tools available to:
 1. get_cost_info() - CHECK COSTS FIRST!
 2. set_prices(A, B, C) - Set subscription prices
 3. set_model_tiers(A, B, C) - Set AI quality tiers (affects compute cost!)
-4. set_daily_spend(advertising, operations, development)
+4. set_daily_spend(operations, development) — ad spend is per (channel, group) only via set_targeted_ad_spend
 5. set_capacity_tier(tier) - Set server capacity
 6. python_exec(code) - Analyze database for insights
 7. Communicate with large customers

@@ -369,38 +369,71 @@ class _APIHandler(BaseHTTPRequestHandler):
     def _handle_next_week(self):
         """Handle next-week advancement: POST /next-week.
 
-        Body must contain ``predictions.cash_1wk``, ``predictions.cash_4wk``,
-        ``predictions.cash_12wk`` (numeric). Missing or non-numeric predictions
-        return 400.
+        Body must contain ``predictions`` with one entry per horizon
+        (``cash_1wk``, ``cash_4wk``, ``cash_12wk``, ``cash_26wk`` for
+        +7/+28/+84/+182 days). Each entry must be an object with three
+        numeric fields: ``point``, ``lower``, ``upper`` — the agent's point
+        estimate plus the 95% CI lower and upper bounds. Missing keys,
+        non-numeric values, or ``lower > upper`` / ``point`` outside
+        ``[lower, upper]`` return 400.
         """
         try:
             server: NovaMindAPIServer = self.server._api_server
             body = self._read_body() or {}
             preds_raw = body.get("predictions")
+            horizon_map = {"cash_1wk": 7, "cash_4wk": 28, "cash_12wk": 84, "cash_26wk": 182}
+            required_keys = ", ".join(horizon_map.keys())
             if not isinstance(preds_raw, dict):
                 self._send_json({
                     "success": False,
-                    "error": "Missing 'predictions' object. Required keys: cash_1wk, cash_4wk, cash_12wk.",
+                    "error": f"Missing 'predictions' object. Required keys: {required_keys}. Each must be an object {{point, lower, upper}} (95% CI bounds in dollars).",
                 }, 400)
                 return
 
-            horizon_map = {"cash_1wk": 7, "cash_4wk": 28, "cash_12wk": 84}
             parsed = {}
             for key, horizon in horizon_map.items():
                 if key not in preds_raw:
                     self._send_json({
                         "success": False,
-                        "error": f"Missing prediction '{key}'. All three required: cash_1wk, cash_4wk, cash_12wk.",
+                        "error": f"Missing prediction '{key}'. Required keys: {required_keys}.",
+                    }, 400)
+                    return
+                entry = preds_raw[key]
+                if not isinstance(entry, dict):
+                    self._send_json({
+                        "success": False,
+                        "error": f"Prediction '{key}' must be an object with fields 'point', 'lower', 'upper' (got {type(entry).__name__}).",
                     }, 400)
                     return
                 try:
-                    parsed[horizon] = {"cash": float(preds_raw[key])}
+                    point = float(entry["point"])
+                    lower = float(entry["lower"])
+                    upper = float(entry["upper"])
+                except KeyError as ke:
+                    self._send_json({
+                        "success": False,
+                        "error": f"Prediction '{key}' missing field {ke}. Required: point, lower, upper.",
+                    }, 400)
+                    return
                 except (TypeError, ValueError):
                     self._send_json({
                         "success": False,
-                        "error": f"Prediction '{key}' must be a number, got {preds_raw[key]!r}.",
+                        "error": f"Prediction '{key}' fields point/lower/upper must all be numbers, got {entry!r}.",
                     }, 400)
                     return
+                if lower > upper:
+                    self._send_json({
+                        "success": False,
+                        "error": f"Prediction '{key}': lower ({lower}) must be <= upper ({upper}).",
+                    }, 400)
+                    return
+                if point < lower or point > upper:
+                    self._send_json({
+                        "success": False,
+                        "error": f"Prediction '{key}': point ({point}) must satisfy lower <= point <= upper (got [{lower}, {upper}]).",
+                    }, 400)
+                    return
+                parsed[horizon] = {"cash": {"point": point, "lower": lower, "upper": upper}}
 
             result = server.advance_week(predictions=parsed)
             self._send_json(result)
@@ -581,7 +614,6 @@ _TOOL_DISPATCH = {
     'set_prices': lambda tools, args: tools.set_prices({k: v for k, v in args.items() if v is not None}),
     'set_model_tiers': lambda tools, args: tools.set_model_tiers({k: v for k, v in args.items() if v is not None}),
     'set_daily_spend': lambda tools, args: tools.set_daily_spend({k: v for k, v in args.items() if v is not None}),
-    'set_ad_channel_spend': lambda tools, args: tools.set_ad_channel_spend({k: v for k, v in args.items() if v is not None}),
     'set_targeted_ad_spend': lambda tools, args: tools.set_targeted_ad_spend(args.get('targeted_spend', args)),
     'set_capacity_tier': lambda tools, args: tools.set_capacity_tier(args.get('tier', args.get('capacity_tier', 0))),
     'set_usage_quotas': lambda tools, args: tools.set_usage_quotas(args),

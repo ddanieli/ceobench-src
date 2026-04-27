@@ -186,34 +186,34 @@ AD_CHANNELS: Dict[str, AdChannel] = {
         name='Social Media Ads',
         description='Facebook, Instagram, TikTok — reaches individuals via feeds and influencer content',
         leads_per_1000_dollars={
-            'S1': 2295.0,  # Best channel for S1: viral social discovery (270× base)
-            'S2': 1215.0,  # Moderate: some professionals on social (270× base)
-            'S3': 756.0,  # Lower: power users prefer technical content (270× base)
-            'E1': 0.262,  # Very low: enterprises don't buy from TikTok; whole-company acquisition (÷2)
-            'E2': 0.158,  # Negligible: professional services avoid social ads entirely (÷2)
-            'E3': 0.081, # Negligible: C-level doesn't buy from Instagram (÷2)
+            'S1': 5378.9062,  # Best channel for S1: viral social discovery (270× base)
+            'S2': 2847.6562,  # Moderate: some professionals on social (270× base)
+            'S3': 1771.875,  # Lower: power users prefer technical content (270× base)
+            'E1': 0.6141,  # Very low: enterprises don't buy from TikTok; whole-company acquisition (÷2)
+            'E2': 0.3704,  # Negligible: professional services avoid social ads entirely (÷2)
+            'E3': 0.1899, # Negligible: C-level doesn't buy from Instagram (÷2)
             # Discoverable individual groups
-            'D_S01': 1890.0,  # Niche Creators: highly active on social (270× base)
-            'D_S02': 459.0,  # Academic Researchers: rarely on social for tools (270× base)
-            'D_S03': 1134.0,  # Non-Profit Workers: community-oriented social (270× base)
-            'D_S04': 1404.0,  # Small Agency Teams: manage social for clients (270× base)
-            'D_S05': 1485.0,  # Indie Game Devs: active on TikTok/Twitter (270× base)
-            'D_S06': 864.0,  # Freelance Writers: moderate social presence (270× base)
-            'D_S07': 540.0,  # Data Analysts: prefer technical content (270× base)
-            'D_S08': 2160.0,  # Social Media Managers: live on social platforms (270× base)
-            'D_S09': 1215.0,  # UX Designers: active on design-focused social (270× base)
-            'D_S10': 1620.0,  # Music Producers: active on Instagram/TikTok (270× base)
+            'D_S01': 4429.6875,  # Niche Creators: highly active on social (270× base)
+            'D_S02': 1075.7812,  # Academic Researchers: rarely on social for tools (270× base)
+            'D_S03': 2657.8125,  # Non-Profit Workers: community-oriented social (270× base)
+            'D_S04': 3290.625,  # Small Agency Teams: manage social for clients (270× base)
+            'D_S05': 3480.4688,  # Indie Game Devs: active on TikTok/Twitter (270× base)
+            'D_S06': 2025.0,  # Freelance Writers: moderate social presence (270× base)
+            'D_S07': 1265.625,  # Data Analysts: prefer technical content (270× base)
+            'D_S08': 5062.5,  # Social Media Managers: live on social platforms (270× base)
+            'D_S09': 2847.6562,  # UX Designers: active on design-focused social (270× base)
+            'D_S10': 3796.875,  # Music Producers: active on Instagram/TikTok (270× base)
             # Discoverable enterprise groups (account-level: 1.5× base)
-            'D_E01': 0.052,  # Government Agencies: zero social media procurement (÷2)
-            'D_E02': 0.133, # Educational Institutions: some ed-tech social presence (÷2)
-            'D_E03': 0.081, # Healthcare Networks: HIPAA-conscious, avoid social (÷2)
-            'D_E04': 0.052,  # Regional Banks: conservative, no social buying (÷2)
-            'D_E05': 0.081, # Insurance Brokers: minimal social presence (÷2)
-            'D_E06': 0.105,  # Construction Firms: field workers on Facebook (÷2)
-            'D_E07': 0.133, # Telecom Operators: some digital marketing awareness (÷2)
-            'D_E08': 0.052,  # Energy Companies: safety-focused, no social buying (÷2)
-            'D_E09': 0.158,  # Real Estate Groups: active on social for listings (÷2)
-            'D_E10': 0.052,  # Shipping Lines: operational focus, no social (÷2)
+            'D_E01': 0.122,  # Government Agencies: zero social media procurement (÷2)
+            'D_E02': 0.3119, # Educational Institutions: some ed-tech social presence (÷2)
+            'D_E03': 0.1899, # Healthcare Networks: HIPAA-conscious, avoid social (÷2)
+            'D_E04': 0.122,  # Regional Banks: conservative, no social buying (÷2)
+            'D_E05': 0.1899, # Insurance Brokers: minimal social presence (÷2)
+            'D_E06': 0.2461,  # Construction Firms: field workers on Facebook (÷2)
+            'D_E07': 0.3119, # Telecom Operators: some digital marketing awareness (÷2)
+            'D_E08': 0.122,  # Energy Companies: safety-focused, no social buying (÷2)
+            'D_E09': 0.3704,  # Real Estate Groups: active on social for listings (÷2)
+            'D_E10': 0.122,  # Shipping Lines: operational focus, no social (÷2)
         }
     ),
     'search_ads': AdChannel(
@@ -221,34 +221,34 @@ AD_CHANNELS: Dict[str, AdChannel] = {
         name='Search Engine Ads',
         description='Google Ads, Bing — reaches S2/S3 who research tools via search',
         leads_per_1000_dollars={
-            'S1': 945.0,  # Moderate: search for deals and alternatives (270× base)
-            'S2': 1026.0,  # Best search channel for S2: thorough research (270× base)
-            'S3': 621.0,  # Strong: power users search for technical solutions (270× base)
-            'E1': 0.315,  # Very low: procurement team vendor comparison; whole-company sale (÷2)
-            'E2': 0.262,  # Very low: compliance research leads to long eval cycle (÷2)
-            'E3': 0.158,  # Negligible: strategic partners prefer referrals over search (÷2)
+            'S1': 2214.8438,  # Moderate: search for deals and alternatives (270× base)
+            'S2': 2404.6875,  # Best search channel for S2: thorough research (270× base)
+            'S3': 1455.4688,  # Strong: power users search for technical solutions (270× base)
+            'E1': 0.7381,  # Very low: procurement team vendor comparison; whole-company sale (÷2)
+            'E2': 0.6141,  # Very low: compliance research leads to long eval cycle (÷2)
+            'E3': 0.3704,  # Negligible: strategic partners prefer referrals over search (÷2)
             # Discoverable individual groups
-            'D_S01': 756.0,  # Niche Creators: search for creative tools (270× base)
-            'D_S02': 1080.0,  # Academic Researchers: heavy tool search (270× base)
-            'D_S03': 702.0,  # Non-Profit Workers: search for affordable tools (270× base)
-            'D_S04': 864.0,  # Small Agency Teams: search for PM tools (270× base)
-            'D_S05': 810.0,  # Indie Game Devs: search for dev tools (270× base)
-            'D_S06': 1026.0,  # Freelance Writers: search for writing tools (270× base)
-            'D_S07': 945.0,  # Data Analysts: search for analytics tools (270× base)
-            'D_S08': 621.0,  # Social Media Managers: less search, more social (270× base)
-            'D_S09': 810.0,  # UX Designers: search for prototyping tools (270× base)
-            'D_S10': 486.0,  # Music Producers: niche search, prefer community (270× base)
+            'D_S01': 1771.875,  # Niche Creators: search for creative tools (270× base)
+            'D_S02': 2531.25,  # Academic Researchers: heavy tool search (270× base)
+            'D_S03': 1645.3125,  # Non-Profit Workers: search for affordable tools (270× base)
+            'D_S04': 2025.0,  # Small Agency Teams: search for PM tools (270× base)
+            'D_S05': 1898.4375,  # Indie Game Devs: search for dev tools (270× base)
+            'D_S06': 2404.6875,  # Freelance Writers: search for writing tools (270× base)
+            'D_S07': 2214.8438,  # Data Analysts: search for analytics tools (270× base)
+            'D_S08': 1455.4688,  # Social Media Managers: less search, more social (270× base)
+            'D_S09': 1898.4375,  # UX Designers: search for prototyping tools (270× base)
+            'D_S10': 1139.0625,  # Music Producers: niche search, prefer community (270× base)
             # Discoverable enterprise groups (account-level: 1.5× base)
-            'D_E01': 0.21,  # Government Agencies: formal procurement, some vendor search (÷2)
-            'D_E02': 0.262,  # Educational Institutions: ed-tech evaluation via search (÷2)
-            'D_E03': 0.238, # Healthcare Networks: compliance-focused vendor search (÷2)
-            'D_E04': 0.185, # Regional Banks: conservative, limited search (÷2)
-            'D_E05': 0.21,  # Insurance Brokers: vendor comparison research (÷2)
-            'D_E06': 0.158,  # Construction Firms: less tech-focused search (÷2)
-            'D_E07': 0.262,  # Telecom Operators: tech-savvy vendor evaluation (÷2)
-            'D_E08': 0.185, # Energy Companies: specialized vendor search (÷2)
-            'D_E09': 0.238, # Real Estate Groups: PropTech search (÷2)
-            'D_E10': 0.158,  # Shipping Lines: logistics tech vendor search (÷2)
+            'D_E01': 0.4921,  # Government Agencies: formal procurement, some vendor search (÷2)
+            'D_E02': 0.6141,  # Educational Institutions: ed-tech evaluation via search (÷2)
+            'D_E03': 0.5578, # Healthcare Networks: compliance-focused vendor search (÷2)
+            'D_E04': 0.4337, # Regional Banks: conservative, limited search (÷2)
+            'D_E05': 0.4921,  # Insurance Brokers: vendor comparison research (÷2)
+            'D_E06': 0.3704,  # Construction Firms: less tech-focused search (÷2)
+            'D_E07': 0.6141,  # Telecom Operators: tech-savvy vendor evaluation (÷2)
+            'D_E08': 0.4337, # Energy Companies: specialized vendor search (÷2)
+            'D_E09': 0.5578, # Real Estate Groups: PropTech search (÷2)
+            'D_E10': 0.3704,  # Shipping Lines: logistics tech vendor search (÷2)
         }
     ),
     'linkedin': AdChannel(
@@ -256,34 +256,34 @@ AD_CHANNELS: Dict[str, AdChannel] = {
         name='LinkedIn Ads',
         description='Professional network — best channel for reaching enterprise decision makers',
         leads_per_1000_dollars={
-            'S1': 378.0,  # Low: freelancers less active on LinkedIn (270× base)
-            'S2': 486.0,  # Moderate: professionals browse LinkedIn (270× base)
-            'S3': 270.0,  # Low: devs prefer Twitter/HN over LinkedIn (270× base)
-            'E1': 0.315,  # Best enterprise channel: VPs browse LinkedIn; account acquisition (÷2)
-            'E2': 0.287, # Strong: thought leadership reaches quality buyers (÷2)
-            'E3': 0.21,  # Moderate: C-level executives network here (÷2)
+            'S1': 885.9375,  # Low: freelancers less active on LinkedIn (270× base)
+            'S2': 1139.0625,  # Moderate: professionals browse LinkedIn (270× base)
+            'S3': 632.8125,  # Low: devs prefer Twitter/HN over LinkedIn (270× base)
+            'E1': 0.7381,  # Best enterprise channel: VPs browse LinkedIn; account acquisition (÷2)
+            'E2': 0.6726, # Strong: thought leadership reaches quality buyers (÷2)
+            'E3': 0.4921,  # Moderate: C-level executives network here (÷2)
             # Discoverable individual groups
-            'D_S01': 189.0,  # Niche Creators: minimal LinkedIn presence (270× base)
-            'D_S02': 405.0,  # Academic Researchers: some academic networking (270× base)
-            'D_S03': 351.0,  # Non-Profit Workers: LinkedIn for grants (270× base)
-            'D_S04': 486.0,  # Small Agency Teams: LinkedIn for clients (270× base)
-            'D_S05': 135.0,  # Indie Game Devs: very low LinkedIn activity (270× base)
-            'D_S06': 459.0,  # Freelance Writers: LinkedIn for gigs (270× base)
-            'D_S07': 540.0,  # Data Analysts: active on LinkedIn professionally (270× base)
-            'D_S08': 297.0,  # Social Media Managers: LinkedIn for B2B (270× base)
-            'D_S09': 378.0,  # UX Designers: portfolio + job networking (270× base)
-            'D_S10': 135.0,  # Music Producers: minimal LinkedIn presence (270× base)
+            'D_S01': 442.9688,  # Niche Creators: minimal LinkedIn presence (270× base)
+            'D_S02': 949.2188,  # Academic Researchers: some academic networking (270× base)
+            'D_S03': 822.6562,  # Non-Profit Workers: LinkedIn for grants (270× base)
+            'D_S04': 1139.0625,  # Small Agency Teams: LinkedIn for clients (270× base)
+            'D_S05': 316.4062,  # Indie Game Devs: very low LinkedIn activity (270× base)
+            'D_S06': 1075.7812,  # Freelance Writers: LinkedIn for gigs (270× base)
+            'D_S07': 1265.625,  # Data Analysts: active on LinkedIn professionally (270× base)
+            'D_S08': 696.0938,  # Social Media Managers: LinkedIn for B2B (270× base)
+            'D_S09': 885.9375,  # UX Designers: portfolio + job networking (270× base)
+            'D_S10': 316.4062,  # Music Producers: minimal LinkedIn presence (270× base)
             # Discoverable enterprise groups (account-level: 1.5× base)
-            'D_E01': 0.262,  # Government Agencies: contracting officers on LinkedIn (÷2)
-            'D_E02': 0.21,  # Educational Institutions: deans/IT on LinkedIn (÷2)
-            'D_E03': 0.315,  # Healthcare Networks: C-suite healthcare on LinkedIn (÷2)
-            'D_E04': 0.287, # Regional Banks: banking executives on LinkedIn (÷2)
-            'D_E05': 0.262,  # Insurance Brokers: professional networking (÷2)
-            'D_E06': 0.158,  # Construction Firms: less LinkedIn activity (÷2)
-            'D_E07': 0.339, # Telecom Operators: tech executives active on LinkedIn (÷2)
-            'D_E08': 0.287, # Energy Companies: sustainability officers on LinkedIn (÷2)
-            'D_E09': 0.262,  # Real Estate Groups: deal-driven LinkedIn networking (÷2)
-            'D_E10': 0.185, # Shipping Lines: logistics execs moderate LinkedIn (÷2)
+            'D_E01': 0.6141,  # Government Agencies: contracting officers on LinkedIn (÷2)
+            'D_E02': 0.4921,  # Educational Institutions: deans/IT on LinkedIn (÷2)
+            'D_E03': 0.7381,  # Healthcare Networks: C-suite healthcare on LinkedIn (÷2)
+            'D_E04': 0.6726, # Regional Banks: banking executives on LinkedIn (÷2)
+            'D_E05': 0.6141,  # Insurance Brokers: professional networking (÷2)
+            'D_E06': 0.3704,  # Construction Firms: less LinkedIn activity (÷2)
+            'D_E07': 0.7947, # Telecom Operators: tech executives active on LinkedIn (÷2)
+            'D_E08': 0.6726, # Energy Companies: sustainability officers on LinkedIn (÷2)
+            'D_E09': 0.6141,  # Real Estate Groups: deal-driven LinkedIn networking (÷2)
+            'D_E10': 0.4337, # Shipping Lines: logistics execs moderate LinkedIn (÷2)
         }
     ),
     'content_marketing': AdChannel(
@@ -291,34 +291,34 @@ AD_CHANNELS: Dict[str, AdChannel] = {
         name='Content Marketing',
         description='Blog posts, SEO, whitepapers — reaches S2/S3/E2 through detailed evaluation content',
         leads_per_1000_dollars={
-            'S1': 945.0,  # Moderate: S1 wants quick solutions, not long reads (270× base)
-            'S2': 1134.0,  # Very strong: S2 reads reviews, comparisons (270× base)
-            'S3': 810.0,  # Strong: S3 trusts technical blog posts (270× base)
-            'E1': 0.392, # Low: vendor comparison content drives account-level interest (÷2)
-            'E2': 0.444, # Best enterprise channel for E2: whitepapers + case studies (÷2)
-            'E3': 0.287, # Low: strategic content resonates but long sales cycle (÷2)
+            'S1': 2214.8438,  # Moderate: S1 wants quick solutions, not long reads (270× base)
+            'S2': 2657.8125,  # Very strong: S2 reads reviews, comparisons (270× base)
+            'S3': 1898.4375,  # Strong: S3 trusts technical blog posts (270× base)
+            'E1': 0.9188, # Low: vendor comparison content drives account-level interest (÷2)
+            'E2': 1.0407, # Best enterprise channel for E2: whitepapers + case studies (÷2)
+            'E3': 0.6726, # Low: strategic content resonates but long sales cycle (÷2)
             # Discoverable individual groups
-            'D_S01': 702.0,  # Niche Creators: tutorials and tool reviews (270× base)
-            'D_S02': 1215.0,  # Academic Researchers: best channel — papers (270× base)
-            'D_S03': 756.0,  # Non-Profit Workers: case studies (270× base)
-            'D_S04': 1026.0,  # Small Agency Teams: workflow blogs (270× base)
-            'D_S05': 864.0,  # Indie Game Devs: dev blogs (270× base)
-            'D_S06': 1269.0,  # Freelance Writers: writing tool reviews (270× base)
-            'D_S07': 1080.0,  # Data Analysts: technical tutorials (270× base)
-            'D_S08': 756.0,  # Social Media Managers: platform strategy (270× base)
-            'D_S09': 945.0,  # UX Designers: design process blogs (270× base)
-            'D_S10': 540.0,  # Music Producers: production technique (270× base)
+            'D_S01': 1645.3125,  # Niche Creators: tutorials and tool reviews (270× base)
+            'D_S02': 2847.6562,  # Academic Researchers: best channel — papers (270× base)
+            'D_S03': 1771.875,  # Non-Profit Workers: case studies (270× base)
+            'D_S04': 2404.6875,  # Small Agency Teams: workflow blogs (270× base)
+            'D_S05': 2025.0,  # Indie Game Devs: dev blogs (270× base)
+            'D_S06': 2974.2188,  # Freelance Writers: writing tool reviews (270× base)
+            'D_S07': 2531.25,  # Data Analysts: technical tutorials (270× base)
+            'D_S08': 1771.875,  # Social Media Managers: platform strategy (270× base)
+            'D_S09': 2214.8438,  # UX Designers: design process blogs (270× base)
+            'D_S10': 1265.625,  # Music Producers: production technique (270× base)
             # Discoverable enterprise groups (account-level: 1.5× base)
-            'D_E01': 0.367,  # Government Agencies: compliance whitepapers (÷2)
-            'D_E02': 0.472,  # Educational Institutions: ed-tech case studies (÷2)
-            'D_E03': 0.42,  # Healthcare Networks: clinical workflow whitepapers (÷2)
-            'D_E04': 0.339, # Regional Banks: fintech comparison content (÷2)
-            'D_E05': 0.367,  # Insurance Brokers: claims efficiency case studies (÷2)
-            'D_E06': 0.262,  # Construction Firms: less content-driven (÷2)
-            'D_E07': 0.392, # Telecom Operators: tech evaluation whitepapers (÷2)
-            'D_E08': 0.42,  # Energy Companies: sustainability/efficiency content (÷2)
-            'D_E09': 0.339, # Real Estate Groups: PropTech case studies (÷2)
-            'D_E10': 0.287, # Shipping Lines: logistics optimization content (÷2)
+            'D_E01': 0.8601,  # Government Agencies: compliance whitepapers (÷2)
+            'D_E02': 1.1063,  # Educational Institutions: ed-tech case studies (÷2)
+            'D_E03': 0.9843,  # Healthcare Networks: clinical workflow whitepapers (÷2)
+            'D_E04': 0.7947, # Regional Banks: fintech comparison content (÷2)
+            'D_E05': 0.8601,  # Insurance Brokers: claims efficiency case studies (÷2)
+            'D_E06': 0.6141,  # Construction Firms: less content-driven (÷2)
+            'D_E07': 0.9188, # Telecom Operators: tech evaluation whitepapers (÷2)
+            'D_E08': 0.9843,  # Energy Companies: sustainability/efficiency content (÷2)
+            'D_E09': 0.7947, # Real Estate Groups: PropTech case studies (÷2)
+            'D_E10': 0.6726, # Shipping Lines: logistics optimization content (÷2)
         }
     ),
     'referral_program': AdChannel(
@@ -326,34 +326,34 @@ AD_CHANNELS: Dict[str, AdChannel] = {
         name='Referral Program',
         description='Customer referral incentives — cheapest channel, powered by satisfied users sharing',
         leads_per_1000_dollars={
-            'S1': 2430.0,  # Very high: share deals with friends for credits (270× base)
-            'S2': 1755.0,  # Very high: recommend to professional colleagues (270× base)
-            'S3': 1296.0,  # High: tech communities share tools heavily (270× base)
-            'E1': 0.735,  # Low: internal referrals between departments; whole-company deals (÷2)
-            'E2': 0.658, # Low: peer recommendations in professional circles (÷2)
-            'E3': 0.525,  # Low: executive referral networks; long eval cycles (÷2)
+            'S1': 5695.3125,  # Very high: share deals with friends for credits (270× base)
+            'S2': 4113.2812,  # Very high: recommend to professional colleagues (270× base)
+            'S3': 3037.5,  # High: tech communities share tools heavily (270× base)
+            'E1': 1.7226,  # Low: internal referrals between departments; whole-company deals (÷2)
+            'E2': 1.5421, # Low: peer recommendations in professional circles (÷2)
+            'E3': 1.2305,  # Low: executive referral networks; long eval cycles (÷2)
             # Discoverable individual groups
-            'D_S01': 2025.0,  # Niche Creators: strong community sharing (270× base)
-            'D_S02': 1404.0,  # Academic Researchers: recommend to lab colleagues (270× base)
-            'D_S03': 1620.0,  # Non-Profit Workers: mission-driven sharing (270× base)
-            'D_S04': 1485.0,  # Small Agency Teams: recommend to partners (270× base)
-            'D_S05': 1755.0,  # Indie Game Devs: dev communities share (270× base)
-            'D_S06': 1134.0,  # Freelance Writers: moderate referral culture (270× base)
-            'D_S07': 1269.0,  # Data Analysts: share in analytics communities (270× base)
-            'D_S08': 1890.0,  # Social Media Managers: natural sharers (270× base)
-            'D_S09': 1404.0,  # UX Designers: design community recs (270× base)
-            'D_S10': 1566.0,  # Music Producers: strong community referrals (270× base)
+            'D_S01': 4746.0938,  # Niche Creators: strong community sharing (270× base)
+            'D_S02': 3290.625,  # Academic Researchers: recommend to lab colleagues (270× base)
+            'D_S03': 3796.875,  # Non-Profit Workers: mission-driven sharing (270× base)
+            'D_S04': 3480.4688,  # Small Agency Teams: recommend to partners (270× base)
+            'D_S05': 4113.2812,  # Indie Game Devs: dev communities share (270× base)
+            'D_S06': 2657.8125,  # Freelance Writers: moderate referral culture (270× base)
+            'D_S07': 2974.2188,  # Data Analysts: share in analytics communities (270× base)
+            'D_S08': 4429.6875,  # Social Media Managers: natural sharers (270× base)
+            'D_S09': 3290.625,  # UX Designers: design community recs (270× base)
+            'D_S10': 3670.3125,  # Music Producers: strong community referrals (270× base)
             # Discoverable enterprise groups (account-level: 1.5× base)
-            'D_E01': 0.392,  # Government Agencies: slow procurement; inter-agency referrals rare (÷2)
-            'D_E02': 0.577,   # Educational Institutions: academic peer recommendations (÷2)
-            'D_E03': 0.472,   # Healthcare Networks: clinical peer networks; compliance barriers (÷2)
-            'D_E04': 0.42,   # Regional Banks: consortium referrals; regulatory hurdles (÷2)
-            'D_E05': 0.525,   # Insurance Brokers: industry peer networks; compliance review (÷2)
-            'D_E06': 0.472,   # Construction Firms: contractor network referrals (÷2)
-            'D_E07': 0.525,   # Telecom Operators: industry peer sharing (÷2)
-            'D_E08': 0.392,  # Energy Companies: utility consortium; long eval cycles (÷2)
-            'D_E09': 0.577,   # Real Estate Groups: deal-network referrals (÷2)
-            'D_E10': 0.367,   # Shipping Lines: port/logistics network; few players (÷2)
+            'D_E01': 0.9188,  # Government Agencies: slow procurement; inter-agency referrals rare (÷2)
+            'D_E02': 1.3522,   # Educational Institutions: academic peer recommendations (÷2)
+            'D_E03': 1.1063,   # Healthcare Networks: clinical peer networks; compliance barriers (÷2)
+            'D_E04': 0.9843,   # Regional Banks: consortium referrals; regulatory hurdles (÷2)
+            'D_E05': 1.2305,   # Insurance Brokers: industry peer networks; compliance review (÷2)
+            'D_E06': 1.1063,   # Construction Firms: contractor network referrals (÷2)
+            'D_E07': 1.2305,   # Telecom Operators: industry peer sharing (÷2)
+            'D_E08': 0.9188,  # Energy Companies: utility consortium; long eval cycles (÷2)
+            'D_E09': 1.3522,   # Real Estate Groups: deal-network referrals (÷2)
+            'D_E10': 0.8601,   # Shipping Lines: port/logistics network; few players (÷2)
         }
     ),
 }
@@ -530,7 +530,7 @@ class BenchmarkConfig:
     # Base product quality on Day 1 (before any dev spending or research).
     # Model tier multiplier is applied to this: delivered_quality = product_quality × tier_multiplier
     # where product_quality = base_product_quality + q_shared_bonus + q_group_bonus
-    base_product_quality: float = 0.2
+    base_product_quality: float = 0.25
 
     # Development improvement rates
     # Reality-matched: Software quality improves ~15-25% with sustained R&D investment
@@ -765,7 +765,7 @@ class BenchmarkConfig:
     # individual issues. Each pool (global + 4 targeted scopes) is partitioned by group;
     # each group g draws Poisson(scale_g × spend × n_g / |pool|) resolutions. Pure-group
     # pools collapse to scale_g × spend. Mixed pools yield a composition-weighted rate.
-    individual_ops_scale: float = 0.25  # issues resolved per $ ops spend per day for S* + D_S* groups
+    individual_ops_scale: float = 0.3  # issues resolved per $ ops spend per day for S* + D_S* groups
     enterprise_ops_scale: float = 0.05  # issues resolved per $ ops spend per day for E* + D_E* groups (lower than individual)
     quick_resolution_threshold_days: int = 2  # Max days for "quick" resolution bonus
     quick_resolution_boost_1day: float = 0.40  # Relationship boost for 1-day resolution
@@ -1524,8 +1524,8 @@ CUSTOMER_GROUP_S1 = CustomerGroupConfig(
     #   https://www.contentgrip.com/openai-chatgpt-subscription-strategy/
     # - Fortune Business Insights 2025: AI SaaS market $22.21B in 2025, 36.59% CAGR
     #   https://www.fortunebusinessinsights.com/ai-saas-market-111182
-    base_market_cap=800000,  # 800K: largest individual segment (freelancers/students/gig workers)
-    annual_cap_growth_rate=0.10,  # Fast-growing: rapid AI tool adoption (AI SaaS CAGR ~37%)
+    base_market_cap=272000,  # 800K: largest individual segment (freelancers/students/gig workers)
+    annual_cap_growth_rate=0.2,  # Fast-growing: rapid AI tool adoption (AI SaaS CAGR ~37%)
     # Lock-in penalty: HIGH — price-sensitive freelancers/students strongly resist commitment.
     # Freelancers have irregular income, need flexibility to cancel anytime.
     # Source: DemandSage 2025 — 70% of freelancers prefer month-to-month subscriptions
@@ -1577,8 +1577,8 @@ CUSTOMER_GROUP_S2 = CustomerGroupConfig(
     #   https://sacra.com/c/grammarly/
     # - GM Insights 2025: AI writing assistant market $2.5B
     #   https://www.gminsights.com/industry-analysis/ai-writing-assistant-software-market
-    base_market_cap=400000,  # 400K: professionals in target verticals
-    annual_cap_growth_rate=0.08,  # Growing: professional AI tool adoption accelerating
+    base_market_cap=136000,  # 400K: professionals in target verticals
+    annual_cap_growth_rate=0.16,  # Growing: professional AI tool adoption accelerating
     # Lock-in penalty: MODERATE — professionals value quality tools but want flexibility.
     # Lawyers/consultants expect to renegotiate terms; moderate lock-in tolerance.
     # Source: KeyBanc 2024 — 60% of professional AI tool users prefer annual with exit clause
@@ -1631,8 +1631,8 @@ CUSTOMER_GROUP_S3 = CustomerGroupConfig(
     #   https://www.aboutchromebooks.com/github-copilot-statistics/
     # - Quantumrun 2025: GitHub Copilot 20M+ cumulative users
     #   https://www.quantumrun.com/consulting/github-copilot-statistics/
-    base_market_cap=250000,  # 250K: power users, devs, data scientists
-    annual_cap_growth_rate=0.08,  # Growing faster: AI coding tools 27% CAGR
+    base_market_cap=85000,  # 250K: power users, devs, data scientists
+    annual_cap_growth_rate=0.16,  # Growing faster: AI coding tools 27% CAGR
     # Lock-in penalty: MODERATE-HIGH — devs value tool-switching freedom, resist vendor lock-in.
     # Developer culture strongly favors open standards and ability to switch tools.
     # Source: StackOverflow 2024 Survey — 65% of devs prefer monthly/cancelable subscriptions
@@ -1707,8 +1707,8 @@ CUSTOMER_GROUP_E1 = CustomerGroupConfig(
     #   https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai
     # - Lighter Capital 2025: median B2B SaaS startup serves 500-5,000 enterprise accounts
     #   https://www.lightercapital.com/blog/2025-b2b-saas-startup-benchmarks
-    base_market_cap=3500,  # 3.5K: budget-conscious enterprise accounts (not seats)
-    annual_cap_growth_rate=0.07,  # Growing: enterprise AI adoption accelerating
+    base_market_cap=1190,  # 3.5K: budget-conscious enterprise accounts (not seats)
+    annual_cap_growth_rate=0.14,  # Growing: enterprise AI adoption accelerating
     seat_count_min=50,
     seat_count_max=500,
     negotiation_rate_mean=0.4,
@@ -1766,8 +1766,8 @@ CUSTOMER_GROUP_E2 = CustomerGroupConfig(
     #   https://www.allaboutai.com/resources/ai-statistics/ai-in-banking/
     # - Lighter Capital 2025: B2B SaaS startup enterprise TAM typically 500-5,000 accounts
     #   https://www.lightercapital.com/blog/2025-b2b-saas-startup-benchmarks
-    base_market_cap=1500,  # 1.5K: quality-first enterprise accounts
-    annual_cap_growth_rate=0.08,  # Growing: premium AI adoption in finance/law/biotech
+    base_market_cap=510,  # 1.5K: quality-first enterprise accounts
+    annual_cap_growth_rate=0.16,  # Growing: premium AI adoption in finance/law/biotech
     seat_count_min=100,
     seat_count_max=1000,
     negotiation_rate_mean=0.25,
@@ -1825,8 +1825,8 @@ CUSTOMER_GROUP_E3 = CustomerGroupConfig(
     #   https://menlovc.com/perspective/2025-the-state-of-generative-ai-in-the-enterprise/
     # - McKinsey 2025: 88% of enterprises report regular AI use, but single-vendor
     #   penetration of Fortune 500 is typically 5-15%
-    base_market_cap=400,  # 400: strategic partner enterprise accounts (global)
-    annual_cap_growth_rate=0.05,  # Moderate growth - large enterprises adopting steadily
+    base_market_cap=136,  # 400: strategic partner enterprise accounts (global)
+    annual_cap_growth_rate=0.1,  # Moderate growth - large enterprises adopting steadily
     seat_count_min=200,
     seat_count_max=2000,
     negotiation_rate_mean=0.15,
@@ -1886,7 +1886,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=80.0, c_max_std=32.0,
         slope_mean=0.008, slope_std=0.003,
         usage_demand_mean=120.0, usage_demand_std=48.0,
-        base_market_cap=200000, annual_cap_growth_rate=0.08,
+        base_market_cap=68000, annual_cap_growth_rate=0.16,
         lockin_penalty_mean=0.160, lockin_penalty_std=0.060,  # 20× from 0.008/0.003
         ads_quality_sensitivity_mean=0.08, ads_quality_sensitivity_std=0.03,
         ads_return_sensitivity_mean=0.10, ads_return_sensitivity_std=0.035,
@@ -1901,7 +1901,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=100.0, c_max_std=40.0,
         slope_mean=0.004, slope_std=0.0015,
         usage_demand_mean=200.0, usage_demand_std=80.0,
-        base_market_cap=350000, annual_cap_growth_rate=0.06,
+        base_market_cap=119000, annual_cap_growth_rate=0.12,
         lockin_penalty_mean=0.100, lockin_penalty_std=0.040,  # 20× from 0.005/0.002
         ads_quality_sensitivity_mean=0.18, ads_quality_sensitivity_std=0.065,
         ads_return_sensitivity_mean=0.06, ads_return_sensitivity_std=0.02,
@@ -1916,7 +1916,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=35.0, c_max_std=14.0,
         slope_mean=0.011, slope_std=0.004,
         usage_demand_mean=60.0, usage_demand_std=24.0,
-        base_market_cap=150000, annual_cap_growth_rate=0.05,
+        base_market_cap=51000, annual_cap_growth_rate=0.1,
         lockin_penalty_mean=0.180, lockin_penalty_std=0.060,  # 20× from 0.009/0.003
         ads_quality_sensitivity_mean=0.07, ads_quality_sensitivity_std=0.025,
         ads_return_sensitivity_mean=0.07, ads_return_sensitivity_std=0.025,
@@ -1930,7 +1930,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=160.0, c_max_std=64.0,
         slope_mean=0.005, slope_std=0.002,
         usage_demand_mean=300.0, usage_demand_std=120.0,
-        base_market_cap=180000, annual_cap_growth_rate=0.07,
+        base_market_cap=61200, annual_cap_growth_rate=0.14,
         lockin_penalty_mean=0.140, lockin_penalty_std=0.040,  # 20× from 0.007/0.002
         ads_quality_sensitivity_mean=0.16, ads_quality_sensitivity_std=0.055,
         ads_return_sensitivity_mean=0.08, ads_return_sensitivity_std=0.03,
@@ -1944,7 +1944,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=90.0, c_max_std=36.0,
         slope_mean=0.006, slope_std=0.002,
         usage_demand_mean=400.0, usage_demand_std=160.0,
-        base_market_cap=120000, annual_cap_growth_rate=0.09,
+        base_market_cap=40800, annual_cap_growth_rate=0.18,
         lockin_penalty_mean=0.160, lockin_penalty_std=0.060,  # 20× from 0.008/0.003
         ads_quality_sensitivity_mean=0.06, ads_quality_sensitivity_std=0.02,
         ads_return_sensitivity_mean=0.14, ads_return_sensitivity_std=0.05,
@@ -1958,7 +1958,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=70.0, c_max_std=28.0,
         slope_mean=0.007, slope_std=0.0025,
         usage_demand_mean=150.0, usage_demand_std=60.0,
-        base_market_cap=300000, annual_cap_growth_rate=0.07,
+        base_market_cap=102000, annual_cap_growth_rate=0.14,
         lockin_penalty_mean=0.180, lockin_penalty_std=0.060,  # 20× from 0.009/0.003
         ads_quality_sensitivity_mean=0.10, ads_quality_sensitivity_std=0.035,
         ads_return_sensitivity_mean=0.12, ads_return_sensitivity_std=0.04,
@@ -1972,7 +1972,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=130.0, c_max_std=52.0,
         slope_mean=0.003, slope_std=0.001,
         usage_demand_mean=250.0, usage_demand_std=100.0,
-        base_market_cap=280000, annual_cap_growth_rate=0.08,
+        base_market_cap=95200, annual_cap_growth_rate=0.16,
         lockin_penalty_mean=0.100, lockin_penalty_std=0.040,  # 20× from 0.005/0.002
         ads_quality_sensitivity_mean=0.17, ads_quality_sensitivity_std=0.06,
         ads_return_sensitivity_mean=0.08, ads_return_sensitivity_std=0.03,
@@ -1986,7 +1986,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=60.0, c_max_std=24.0,
         slope_mean=0.009, slope_std=0.0035,
         usage_demand_mean=100.0, usage_demand_std=40.0,
-        base_market_cap=250000, annual_cap_growth_rate=0.10,
+        base_market_cap=85000, annual_cap_growth_rate=0.2,
         lockin_penalty_mean=0.140, lockin_penalty_std=0.040,  # 20× from 0.007/0.002
         ads_quality_sensitivity_mean=0.09, ads_quality_sensitivity_std=0.03,
         ads_return_sensitivity_mean=0.15, ads_return_sensitivity_std=0.055,
@@ -2000,7 +2000,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=150.0, c_max_std=60.0,
         slope_mean=0.003, slope_std=0.001,
         usage_demand_mean=180.0, usage_demand_std=72.0,
-        base_market_cap=160000, annual_cap_growth_rate=0.06,
+        base_market_cap=54400, annual_cap_growth_rate=0.12,
         lockin_penalty_mean=0.080, lockin_penalty_std=0.040,  # 20× from 0.004/0.002
         ads_quality_sensitivity_mean=0.22, ads_quality_sensitivity_std=0.075,
         ads_return_sensitivity_mean=0.05, ads_return_sensitivity_std=0.02,
@@ -2014,7 +2014,7 @@ _INDIVIDUAL_GROUP_PARAMS = {
         c_max_mean=100.0, c_max_std=40.0,
         slope_mean=0.006, slope_std=0.002,
         usage_demand_mean=140.0, usage_demand_std=56.0,
-        base_market_cap=100000, annual_cap_growth_rate=0.07,
+        base_market_cap=34000, annual_cap_growth_rate=0.14,
         lockin_penalty_mean=0.160, lockin_penalty_std=0.060,  # 20× from 0.008/0.003
         ads_quality_sensitivity_mean=0.11, ads_quality_sensitivity_std=0.04,
         ads_return_sensitivity_mean=0.09, ads_return_sensitivity_std=0.03,
@@ -2042,7 +2042,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=90.0, c_max_std=36.0,
         slope_mean=0.003, slope_std=0.001,
         usage_demand_mean=80.0, usage_demand_std=32.0,
-        base_market_cap=1300, annual_cap_growth_rate=0.04,
+        base_market_cap=442, annual_cap_growth_rate=0.08,
         seat_count_min=50, seat_count_max=500,
         negotiation_rate_mean=0.20, negotiation_rate_std=0.06,
         reply_delay_mean=20.0, reply_delay_std=7.0,
@@ -2061,7 +2061,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=50.0, c_max_std=20.0,
         slope_mean=0.007, slope_std=0.0025,
         usage_demand_mean=70.0, usage_demand_std=28.0,
-        base_market_cap=1400, annual_cap_growth_rate=0.06,
+        base_market_cap=476, annual_cap_growth_rate=0.12,
         seat_count_min=80, seat_count_max=800,
         negotiation_rate_mean=0.35, negotiation_rate_std=0.1,
         reply_delay_mean=12.0, reply_delay_std=4.0,
@@ -2080,7 +2080,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=130.0, c_max_std=52.0,
         slope_mean=0.002, slope_std=0.001,
         usage_demand_mean=120.0, usage_demand_std=48.0,
-        base_market_cap=425, annual_cap_growth_rate=0.08,
+        base_market_cap=144, annual_cap_growth_rate=0.16,
         seat_count_min=100, seat_count_max=1000,
         negotiation_rate_mean=0.20, negotiation_rate_std=0.06,
         reply_delay_mean=18.0, reply_delay_std=6.0,
@@ -2099,7 +2099,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=110.0, c_max_std=44.0,
         slope_mean=0.002, slope_std=0.001,
         usage_demand_mean=100.0, usage_demand_std=40.0,
-        base_market_cap=1300, annual_cap_growth_rate=0.05,
+        base_market_cap=442, annual_cap_growth_rate=0.1,
         seat_count_min=60, seat_count_max=600,
         negotiation_rate_mean=0.25, negotiation_rate_std=0.07,
         reply_delay_mean=15.0, reply_delay_std=5.0,
@@ -2117,7 +2117,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=80.0, c_max_std=32.0,
         slope_mean=0.005, slope_std=0.002,
         usage_demand_mean=90.0, usage_demand_std=36.0,
-        base_market_cap=1400, annual_cap_growth_rate=0.06,
+        base_market_cap=476, annual_cap_growth_rate=0.12,
         seat_count_min=40, seat_count_max=400,
         negotiation_rate_mean=0.30, negotiation_rate_std=0.09,
         reply_delay_mean=10.0, reply_delay_std=3.5,
@@ -2135,7 +2135,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=55.0, c_max_std=22.0,
         slope_mean=0.007, slope_std=0.0025,
         usage_demand_mean=50.0, usage_demand_std=20.0,
-        base_market_cap=825, annual_cap_growth_rate=0.07,
+        base_market_cap=280, annual_cap_growth_rate=0.14,
         seat_count_min=30, seat_count_max=300,
         negotiation_rate_mean=0.40, negotiation_rate_std=0.11,
         reply_delay_mean=7.0, reply_delay_std=2.5,
@@ -2153,7 +2153,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=120.0, c_max_std=48.0,
         slope_mean=0.003, slope_std=0.001,
         usage_demand_mean=130.0, usage_demand_std=52.0,
-        base_market_cap=770, annual_cap_growth_rate=0.05,
+        base_market_cap=262, annual_cap_growth_rate=0.1,
         seat_count_min=150, seat_count_max=1500,
         negotiation_rate_mean=0.18, negotiation_rate_std=0.05,
         reply_delay_mean=22.0, reply_delay_std=7.0,
@@ -2171,7 +2171,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=100.0, c_max_std=40.0,
         slope_mean=0.004, slope_std=0.0015,
         usage_demand_mean=90.0, usage_demand_std=36.0,
-        base_market_cap=700, annual_cap_growth_rate=0.06,
+        base_market_cap=238, annual_cap_growth_rate=0.12,
         seat_count_min=80, seat_count_max=800,
         negotiation_rate_mean=0.22, negotiation_rate_std=0.06,
         reply_delay_mean=18.0, reply_delay_std=6.0,
@@ -2190,7 +2190,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=65.0, c_max_std=26.0,
         slope_mean=0.006, slope_std=0.002,
         usage_demand_mean=60.0, usage_demand_std=24.0,
-        base_market_cap=420, annual_cap_growth_rate=0.04,
+        base_market_cap=143, annual_cap_growth_rate=0.08,
         seat_count_min=30, seat_count_max=350,
         negotiation_rate_mean=0.38, negotiation_rate_std=0.11,
         reply_delay_mean=5.0, reply_delay_std=2.0,
@@ -2208,7 +2208,7 @@ _ENTERPRISE_GROUP_PARAMS = {
         c_max_mean=75.0, c_max_std=30.0,
         slope_mean=0.005, slope_std=0.002,
         usage_demand_mean=70.0, usage_demand_std=28.0,
-        base_market_cap=450, annual_cap_growth_rate=0.05,
+        base_market_cap=153, annual_cap_growth_rate=0.1,
         seat_count_min=60, seat_count_max=600,
         negotiation_rate_mean=0.22, negotiation_rate_std=0.06,
         reply_delay_mean=16.0, reply_delay_std=5.0,
@@ -2575,7 +2575,7 @@ COMPETITOR_REACTIVITY_Q_BIAS: Dict[str, float] = {
     # S2: Quality professionals — stick with what works, moderate reaction.
     'S2': 0.06,
     # S3: Power users / tech-forward — actively chase state-of-the-art.
-    'S3': 0.25,
+    'S3': 0.2,
     # E1: Cost-cutting enterprise — procurement cycles buffer them, but they
     # still use competitor news as negotiating leverage.
     'E1': 0.12,
@@ -2670,123 +2670,133 @@ COMPETITOR_REACTIVITY_Q_BIAS: Dict[str, float] = {
 #
 INDIVIDUAL_PREFERENCE_DRIFT: Dict[str, Dict[str, float]] = {
     # === Initial Groups ===
-    # q_bias_drift: additive shift applied equally to both q_min AND q_max every day.
-    # Shifts the entire participation curve upward (customers demand more quality at every price).
-    # No caps or floors — both q_min and q_max move together freely.
+    # q_bias_drift: MULTIPLICATIVE daily growth applied equally to current_q_min AND current_q_max.
+    # Each step compounds: q *= (1 + rate)^days. Both endpoints scale by the same factor, so
+    # the participation band widens (q_max moves more in absolute terms than q_min) while the
+    # whole curve shifts up (rising quality bar). No caps or floors.
+    # Magnitudes are tuned per backstory — aggressive churn-prone groups raise the bar fast,
+    # compliance-locked enterprise groups barely move.
 
     # S1 (Price-Sensitive/Gig): AGGRESSIVE — Freelancers face severe subscription fatigue.
+    # Quality bar climbs as alternatives multiply and "good enough" gets cheaper.
     # [ChurnFree 2026, BetterCloud 2025: SaaS inflation 4x general market]
     'S1': {
         'c_max_drift': -0.0020,            # Severe budget fatigue: -0.2%/day ≈ -16.5% over 90 days
-        'q_bias_drift': +0.0010,           # halved from 0.0020
+        'q_bias_drift': +0.0020,           # AGGRESSIVE: +0.2%/day ≈ +6.2%/mo, +20% over 90d
     },
 
     # S2 (Quality Professionals): Quality bar rises steadily, budget stable (employer-paid).
     # [K38 2026, Custify 2026: 67% rising standards, PayPro Global: price sensitivity ↓20-30% after yr 1]
     'S2': {
-        'q_bias_drift': +0.00075,          # halved from 0.0015
+        'q_bias_drift': +0.0010,           # MODERATE: +0.1%/day ≈ +3.0%/mo, +9.4% over 90d
         'steepness_left_drift': +0.0003,    # Sharper quality threshold: +2.7% over 90 days
         'c_max_drift': +0.0002,             # Employer-funded budget expansion: +1.8%/90d
     },
 
-    # S3 (Power Users/Tech): AGGRESSIVE threshold sharpening.
-    # [K38 2026: tenured power users have highest feature-gap churn, ProfitWell: 10-15% annual ARPU increase]
+    # S3 (Power Users/Tech): AGGRESSIVE — tenured power users have highest feature-gap churn.
+    # [K38 2026, ProfitWell: 10-15% annual ARPU increase]
     'S3': {
         'steepness_left_drift': +0.0012,    # Aggressive threshold sharpening: +11.4% over 90 days
-        'q_bias_drift': +0.0010,           # halved from 0.0020
+        'q_bias_drift': +0.0020,           # AGGRESSIVE: +0.2%/day ≈ +6.2%/mo, +20% over 90d
         'c_max_drift': +0.00015,            # Power users upgrade: +1.4%/90d
     },
 
-    # E1 (Cost-Cutting Enterprise): AGGRESSIVE budget pressure.
+    # E1 (Cost-Cutting Enterprise): Budget under pressure but quality bar still rises.
     # [Gartner 2025, Formstack 2025: 37% paused capex]
     'E1': {
         'c_max_drift': -0.0015,             # Aggressive budget cuts: -12.7% over 90 days
-        'q_bias_drift': +0.00075,          # halved from 0.0015
+        'q_bias_drift': +0.0010,           # MODERATE: +0.1%/day ≈ +3.0%/mo
         'seat_count_drift': -0.0003,         # Post-subscription headcount cuts: -2.7% over 90 days
     },
 
-    # E2 (Quality-First Enterprise): Compliance requirements compound.
+    # E2 (Quality-First Enterprise): Compliance requirements compound — slow but steady.
+    # Long contracts and audit cycles mean the bar moves on quarterly review, not daily.
     # [PayPro Global, McKinsey 2024: compliance costs rising 12-18%/yr]
     'E2': {
         'steepness_left_drift': +0.0004,    # Compliance sharpening: +3.7% over 90 days
         'c_max_drift': +0.0003,             # Budget expansion from proven ROI: +2.7% over 90 days
         'seat_count_drift': +0.0004,         # Compliance teams expand: +3.7% over 90 days
-        'q_bias_drift': +0.0003125,        # halved from 0.000625
+        'q_bias_drift': +0.0005,           # LOW: +0.05%/day ≈ +1.5%/mo, +4.6% over 90d
     },
 
     # E3 (Strategic Partners/Fortune 500): Very stable, massive switching costs.
+    # 2.5-year contracts mean the quality bar barely moves day-to-day.
     # [Menlo Ventures 2025: enterprise GenAI deals avg 2.5-year contracts]
     'E3': {
         'c_max_drift': +0.0002,             # Slow budget expansion: +1.8% over 90 days
         'seat_count_drift': +0.0003,         # Org-wide rollout expansion: +2.7% over 90 days
-        'q_bias_drift': +0.0001875,        # halved from 0.000375
+        'q_bias_drift': +0.00025,          # VERY LOW: +0.025%/day ≈ +0.75%/mo, +2.3% over 90d
     },
 
     # === Discoverable Small Groups (D_S01-D_S10) ===
 
-    # D_S01 (Niche Creators): AGGRESSIVE — feast-or-famine budgets.
+    # D_S01 (Niche Creators): AGGRESSIVE — feast-or-famine budgets, picky on output quality.
     # [Upwork 2025: 72% of creative freelancers prefer month-to-month]
     'D_S01': {
         'c_max_drift': -0.0025,             # Severe budget fatigue: -20.2% over 90 days
-        'q_bias_drift': +0.00125,          # halved from 0.0025
+        'q_bias_drift': +0.0020,           # AGGRESSIVE: +0.2%/day ≈ +6.2%/mo
     },
 
     # D_S02 (Academic Researchers): Grant cycles, rising publication standards.
+    # Methodical: standards rise consistently with each new paper they read.
     # [Nature 2024: 60% buy annual licenses on grant cycles]
     'D_S02': {
-        'q_bias_drift': +0.000875,         # halved from 0.00175
+        'q_bias_drift': +0.0012,           # MODERATE-HIGH: +0.12%/day ≈ +3.7%/mo, +11.4% over 90d
         'steepness_left_drift': +0.0003,     # Methodical threshold sharpening: +2.7% over 90 days
     },
 
-    # D_S03 (Non-Profit Workers): AGGRESSIVE funding cliff.
+    # D_S03 (Non-Profit Workers): Funding cliff dominates — quality drift is minimal.
+    # They tolerate "good enough" because there's no money for upgrades.
     # [NTEN 2025: 78% prefer monthly to avoid budget lock-in]
     'D_S03': {
         'c_max_drift': -0.0030,             # Severe budget erosion: -23.7% over 90 days
-        'q_bias_drift': +0.0000875,        # halved from 0.000175
+        'q_bias_drift': +0.00015,          # MINIMAL: +0.015%/day ≈ +0.45%/mo
     },
 
-    # D_S04 (Small Agency Teams): AGGRESSIVE tool-hoppers.
+    # D_S04 (Small Agency Teams): VERY AGGRESSIVE tool-hoppers — switch when something better appears.
     # [HubSpot 2025: agencies churn tools 2x faster]
     'D_S04': {
         'c_max_drift': -0.0015,             # Aggressive budget pressure: -12.7% over 90 days
-        'q_bias_drift': +0.0015,           # halved from 0.0030
+        'q_bias_drift': +0.0025,           # VERY AGGRESSIVE: +0.25%/day ≈ +7.8%/mo, +25.7% over 90d
         'steepness_left_drift': +0.0008,     # Razor-sharp requirements: +7.4% over 90 days
     },
 
-    # D_S05 (Indie Game Devs): AGGRESSIVE project-end budget collapse.
+    # D_S05 (Indie Game Devs): AGGRESSIVE project-end budget collapse, demanding output quality.
     # [GDC 2025: 69% use monthly subscriptions only]
     'D_S05': {
         'c_max_drift': -0.0022,             # Project-end budget collapse: -18% over 90 days
-        'q_bias_drift': +0.0015,           # halved from 0.0030
+        'q_bias_drift': +0.0025,           # VERY AGGRESSIVE: +0.25%/day ≈ +7.8%/mo
     },
 
-    # D_S06 (Freelance Writers): AGGRESSIVE — hypercritical of AI output.
+    # D_S06 (Freelance Writers): MOST AGGRESSIVE — hypercritical of AI output, ratchet up fast.
     # [Contently 2025: freelance writers churn subscriptions at 15%/month]
     'D_S06': {
         'c_max_drift': -0.0018,             # Severe budget fatigue: -15% over 90 days
-        'q_bias_drift': +0.001875,         # halved from 0.00375
+        'q_bias_drift': +0.0030,           # MOST AGGRESSIVE: +0.3%/day ≈ +9.4%/mo, +31.5% over 90d
         'steepness_left_drift': +0.0006,     # Very sharp quality thresholds: +5.5% over 90 days
     },
 
     # D_S07 (Data Analysts): Stable budgets, rising precision demands.
     # [Kaggle 2024, Snowflake FY2025: NRR 125-131%]
     'D_S07': {
-        'q_bias_drift': +0.000625,         # halved from 0.00125
+        'q_bias_drift': +0.0010,           # MODERATE: +0.1%/day ≈ +3.0%/mo
         'steepness_left_drift': +0.0004,     # Sharpening accuracy threshold: +3.7% over 90 days
         'c_max_drift': +0.00015,            # Budget expansion: +5.5%/yr
     },
 
-    # D_S08 (Social Media Managers): Trend-chasers, volatile quality expectations.
+    # D_S08 (Social Media Managers): Trend-chasers — quality bar moves with whatever's trending.
+    # Volatile but not extreme — they reset their baseline often rather than ratcheting up.
     # [Sprout Social 2025: SM managers evaluate new tools every 6 months]
     'D_S08': {
         'c_max_drift': -0.0005,             # Moderate budget drift: -4.4% over 90 days
-        'q_bias_drift': +0.0005,           # halved from 0.0010
+        'q_bias_drift': +0.0008,           # LOW-MODERATE: +0.08%/day ≈ +2.4%/mo
     },
 
     # D_S09 (UX Designers): Stable budgets, high switching cost loyalty.
+    # Loyal but still quality-conscious by trade.
     # [Nielsen Norman 2024, Atlassian FY2025: cloud NRR 120%]
     'D_S09': {
-        'q_bias_drift': +0.0005,           # halved from 0.0010
+        'q_bias_drift': +0.0008,           # LOW-MODERATE: +0.08%/day ≈ +2.4%/mo
         'steepness_left_drift': -0.0002,     # Adaptation/loyalty (switching cost): -1.8% over 90 days
         'c_max_drift': +0.0001,             # Budget expansion: +3.7%/yr
     },
@@ -2795,90 +2805,92 @@ INDIVIDUAL_PREFERENCE_DRIFT: Dict[str, Dict[str, float]] = {
     # [MIDiA 2025: 65% prefer monthly subscriptions]
     'D_S10': {
         'c_max_drift': -0.0007,             # Project-lifecycle budget decline: -6.1% over 90 days
-        'q_bias_drift': +0.00075,          # halved from 0.0015
+        'q_bias_drift': +0.0012,           # MODERATE-HIGH: +0.12%/day ≈ +3.7%/mo
     },
 
     # === Discoverable Enterprise Groups (D_E01-D_E10) ===
 
-    # D_E01 (Government Agencies): Stable multi-year procurement, compliance compounds.
+    # D_E01 (Government Agencies): Stable multi-year procurement, compliance compounds slowly.
     # [GSA 2025: federal IT contracts avg 3-5 years]
     'D_E01': {
         'steepness_left_drift': +0.0003,     # Compliance threshold sharpening: +2.7% over 90 days
         'seat_count_drift': -0.0005,          # Federal workforce cuts (DOGE): -4.4% over 90 days
-        'q_bias_drift': +0.0000625,        # halved from 0.000125
+        'q_bias_drift': +0.00015,          # MINIMAL: +0.015%/day ≈ +0.45%/mo
     },
 
     # D_E02 (Educational Institutions): Annual budget cycles, rising standards.
     # [EdTech Magazine 2025: 85% of K-12 SaaS contracts are annual]
     'D_E02': {
-        'q_bias_drift': +0.000625,         # halved from 0.00125
+        'q_bias_drift': +0.0010,           # MODERATE: +0.1%/day ≈ +3.0%/mo
         'c_max_drift': -0.0003,              # Annual budget cycle pressure: -2.7% over 90 days
         'steepness_left_drift': +0.0002,     # Education: slow threshold sharpening (moved from group drift)
         'seat_count_drift': +0.0002,          # Slow faculty/staff growth: +1.8% over 90 days
     },
 
-    # D_E03 (Healthcare Networks): AGGRESSIVE compliance, zero tolerance.
+    # D_E03 (Healthcare Networks): AGGRESSIVE compliance, zero tolerance for quality regressions.
     # [KLAS Research 2025: healthcare IT contracts avg 5-7 years]
     'D_E03': {
         'steepness_left_drift': +0.0012,     # Zero-tolerance compliance sharpening: +11.4% over 90 days
-        'q_bias_drift': +0.0010,           # halved from 0.0020
+        'q_bias_drift': +0.0020,           # AGGRESSIVE: +0.2%/day ≈ +6.2%/mo
         'seat_count_drift': +0.0005,          # Healthcare workforce boom: +4.6% over 90 days
     },
 
-    # D_E04 (Regional Banks): AGGRESSIVE regulatory compliance.
+    # D_E04 (Regional Banks): Regulatory compliance ratchets up — but slow contractual cycles.
     # [Cornerstone Advisors 2025: bank core tech contracts avg 7+ years]
     'D_E04': {
         'c_max_drift': -0.0010,              # Aggressive compliance cost drain: -8.6% over 90 days
         'steepness_left_drift': +0.0010,     # Zero-tolerance quality sharpening: +9.4% over 90 days
-        'q_bias_drift': +0.000625,         # halved from 0.00125
+        'q_bias_drift': +0.0010,           # MODERATE: +0.1%/day ≈ +3.0%/mo
         'seat_count_drift': -0.0002,          # Branch consolidation: -1.8% over 90 days
     },
 
     # D_E05 (Insurance Brokers): Annual policy cycles, claims accuracy demands.
     # [Novarica 2025: insurance tech contracts typically 3-year terms]
     'D_E05': {
-        'q_bias_drift': +0.0005,           # halved from 0.0010
+        'q_bias_drift': +0.0007,           # LOW-MODERATE: +0.07%/day ≈ +2.1%/mo
         'steepness_left_drift': +0.0003,      # Underwriting precision: +2.7% over 90 days
         'seat_count_drift': +0.0001,           # Stable workforce: +0.9% over 90 days
     },
 
     # D_E06 (Construction Firms): Project-based, seasonal budget pressure.
+    # Quality bar moves with each project's specs — moderate cadence.
     # [Dodge Construction 2025: 55% prefer annual SaaS]
     'D_E06': {
         'c_max_drift': -0.0005,              # Project cost pressure: -4.4% over 90 days
-        'q_bias_drift': +0.000375,         # halved from 0.00075
+        'q_bias_drift': +0.0005,           # LOW: +0.05%/day ≈ +1.5%/mo
         'seat_count_drift': +0.0004,           # Construction hiring boom: +3.7% over 90 days
     },
 
     # D_E07 (Telecom Operators): Massive infrastructure, very stable.
+    # 5+ year contracts and integration lock-in mean the quality bar barely moves.
     # [TM Forum 2025: telecom vendor contracts avg 5+ years]
     'D_E07': {
         'c_max_drift': +0.0003,              # Integration-driven budget expansion: +2.7% over 90 days
-        'q_bias_drift': +0.00025,          # halved from 0.0005
+        'q_bias_drift': +0.0004,           # VERY LOW: +0.04%/day ≈ +1.2%/mo
         'seat_count_drift': +0.0002,           # Network expansion teams: +1.8% over 90 days
     },
 
     # D_E08 (Energy Companies): Long capex cycles, sustainability requirements.
     # [Wood Mackenzie 2025: energy sector software contracts avg 3-5 years]
     'D_E08': {
-        'q_bias_drift': +0.000375,         # halved from 0.00075
+        'q_bias_drift': +0.0005,           # LOW: +0.05%/day ≈ +1.5%/mo
         'seat_count_drift': +0.0002,           # Energy transition hiring: +1.8% over 90 days
     },
 
-    # D_E09 (Real Estate Groups): AGGRESSIVE market downturn budget crush.
+    # D_E09 (Real Estate Groups): Market downturn drives consolidation; quality bar tightens.
     # [Deloitte RE 2025: CRE tech switching increased 40% in downturns]
     'D_E09': {
         'c_max_drift': -0.0018,              # Market-crash budget collapse: -15% over 90 days
-        'q_bias_drift': +0.00075,          # halved from 0.0015
+        'q_bias_drift': +0.0012,           # MODERATE-HIGH: +0.12%/day ≈ +3.7%/mo
         'seat_count_drift': -0.0004,           # Real estate layoffs: -3.5% over 90 days
     },
 
-    # D_E10 (Shipping Lines): Global operations, very stable.
+    # D_E10 (Shipping Lines): Global operations, very stable, low expectation churn.
     # [Drewry Maritime 2025: shipping IT vendor contracts avg 4+ years]
     'D_E10': {
         'steepness_left_drift': +0.0002,     # Supply chain quality threshold: +1.8% over 90 days
         'seat_count_drift': +0.0001,           # Stable global ops: +0.9% over 90 days
-        'q_bias_drift': +0.00015,          # halved from 0.00030
+        'q_bias_drift': +0.0002,           # MINIMAL: +0.02%/day ≈ +0.6%/mo
     },
 }
 

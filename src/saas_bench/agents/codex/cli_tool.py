@@ -4,7 +4,7 @@
 Usage:
     saas-bench-cli next_week
     saas-bench-cli set_prices --A 29 --B 79 --C 199
-    saas-bench-cli set_daily_spend --ads 1000 --ops 500 --dev 500
+    saas-bench-cli set_daily_spend --ops 500 --dev 500
     saas-bench-cli log_rationale "My reasoning here"
     saas-bench-cli status
 """
@@ -208,9 +208,8 @@ def cmd_set_daily_spend(args):
     tools = AgentTools(conn, state.get('current_day', 1), config['workspace'] / 'agent', config['db_path'])
 
     result = tools.set_daily_spend({
-        'advertising': args.ads,
         'operations': args.ops,
-        'development': args.dev
+        'development': args.dev,
     })
     print(result.message)
 
@@ -267,8 +266,7 @@ def main():
     prices_parser.add_argument('--C', type=float, required=True, help='Price for Plan C')
 
     # set_daily_spend
-    spend_parser = subparsers.add_parser('set_daily_spend', help='Set daily spending')
-    spend_parser.add_argument('--ads', type=float, default=0, help='Advertising spend')
+    spend_parser = subparsers.add_parser('set_daily_spend', help='Set daily ops/dev spending (ad spend is per (channel, group) only)')
     spend_parser.add_argument('--ops', type=float, default=0, help='Operations spend')
     spend_parser.add_argument('--dev', type=float, default=0, help='Development spend')
 

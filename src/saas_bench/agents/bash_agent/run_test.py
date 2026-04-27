@@ -162,9 +162,17 @@ class BashAgentRunner:
         env_file = Path(__file__).parent.parent.parent.parent.parent / ".env"
         env_vars = load_env_file(env_file)
 
-        for key in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION', 'AWS_SESSION_TOKEN']:
+        for key in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION',
+                    'AWS_SESSION_TOKEN', 'NMDB_KEY']:
             if key in env_vars and key not in os.environ:
                 os.environ[key] = env_vars[key]
+
+        if not os.environ.get("NMDB_KEY"):
+            raise RuntimeError(
+                "NMDB_KEY must be set (either in .env or the environment) before "
+                "launching the bash_agent runner. It is the SQLCipher key for the "
+                ".nmdb session database."
+            )
 
         self.use_anthropic = provider in ("anthropic", "bedrock")
 
@@ -383,68 +391,72 @@ __pycache__/
             self._git("commit", "-q", "-m", message)
 
     def _initialize_from_public_repo(self):
-        """Copy public/ into agent workspace and create a session via the CLI.
+        """Copy the published layout into the agent workspace and create a session.
+
+        After the zipapp refactor the published repo is just two artifacts:
+
+            novamind-operation    # zipapp (engine + CLI)
+            docs/                 # reference material (incl. SDK source)
 
         Flow:
-        1. Copy entire public/ directory into agent_workspace
-        2. Run 'novamind-server new-session' (uses compiled _engine/ bytecode)
-        3. Return the session metadata (session_id, db paths, etc.)
+        1. Copy those two into agent_workspace.
+        2. Create a session via the HOST-SIDE zipapp invoked in server mode,
+           so the agent never sees simulator bytecode directly.
+        3. Return the session metadata.
 
         public/ must be built first via `uv run python build_public.py`.
         """
         import stat
 
-        # Path: .../src/saas_bench/agents/bash_agent/run_test.py → project root is parent^5
-        public_dir = Path(__file__).parent.parent.parent.parent.parent / "public"
-        if not public_dir.exists():
-            raise FileNotFoundError(
-                f"public/ directory not found at {public_dir}. "
-                f"Run 'uv run python build_public.py' first."
-            )
-
+        public_dir = self._public_dir()
         self.agent_workspace.mkdir(parents=True, exist_ok=True)
         self._git_init_workspace()
 
-        # Copy directories (including compiled engine)
-        for dirname in ['docs', 'novamind_api', 'examples', '_engine']:
-            src = public_dir / dirname
-            dst = self.agent_workspace / dirname
-            if src.exists():
-                if dst.exists():
-                    shutil.rmtree(dst)
-                shutil.copytree(
-                    src, dst,
-                    ignore=shutil.ignore_patterns('__pycache__'),
-                )
+        # docs/ is the only directory the agent needs — it holds the tool/table
+        # JSON, cli.md, examples/, and the readable SDK source at
+        # docs/novamind_api/ (used for ``import novamind_api`` at runtime).
+        src_docs = public_dir / "docs"
+        dst_docs = self.agent_workspace / "docs"
+        if src_docs.exists():
+            if dst_docs.exists():
+                shutil.rmtree(dst_docs)
+            shutil.copytree(
+                src_docs, dst_docs,
+                ignore=shutil.ignore_patterns('__pycache__'),
+            )
 
-        # Copy top-level files (CLI + server launcher)
-        for fname in ['README.md', 'novamind-operation', 'novamind-server', 'install.sh']:
-            src = public_dir / fname
-            if src.exists():
-                dst = self.agent_workspace / fname
-                shutil.copy2(src, dst)
-                if fname in ('novamind-operation', 'novamind-server', 'install.sh'):
-                    dst.chmod(dst.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        # Copy novamind-operation (zipapp). This is the ONLY executable the
+        # agent has — no separate novamind-server, no install.sh, nothing else.
+        src_op = public_dir / "novamind-operation"
+        dst_op = self.agent_workspace / "novamind-operation"
+        if not src_op.exists():
+            raise FileNotFoundError(
+                f"{src_op} does not exist. Did you run `uv run python build_public.py`?"
+            )
+        shutil.copy2(src_op, dst_op)
+        dst_op.chmod(dst_op.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
-        # Always create daily_scripts directory
+        # Create the per-session scratch root (daily_scripts/ inside it is
+        # created later by the engine's initialize_workspace()).
         (self.agent_workspace / "daily_scripts").mkdir(exist_ok=True)
 
-        # Run novamind-server new-session via the compiled engine
-        server_script = self.agent_workspace / "novamind-server"
+        # Run new-session via the HOST-SIDE zipapp (bytecode stays on host).
+        env = os.environ.copy()
+        env["NOVAMIND_SERVER_MODE"] = "1"
         result = subprocess.run(
             [
-                sys.executable, str(server_script),
+                sys.executable, str(src_op),
                 "--base", str(self.agent_workspace),
                 "new-session",
                 "--days", str(self.total_days),
                 "--seed", str(self.seed),
                 "--cash", str(self.initial_cash),
             ],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"novamind-server new-session failed:\n{result.stderr}\n{result.stdout}"
+                f"novamind-operation new-session failed:\n{result.stderr}\n{result.stdout}"
             )
 
         session_info = json.loads(result.stdout)
@@ -453,21 +465,44 @@ __pycache__/
         self._git_commit_workspace("Initial workspace setup (day 0)")
         return session_info
 
+    def _public_dir(self) -> Path:
+        """Location of the host-side public/ bundle (contains _engine/).
+
+        The bash_agent run_test.py lives at:
+            <root>/src/saas_bench/agents/bash_agent/run_test.py
+        public/ lives at <root>/public/. parent^5 = <root>.
+        """
+        public_dir = Path(__file__).parent.parent.parent.parent.parent / "public"
+        if not public_dir.exists():
+            raise FileNotFoundError(
+                f"public/ directory not found at {public_dir}. "
+                f"Run 'uv run python build_public.py' first."
+            )
+        return public_dir
+
     def _launch_server(self):
-        """Launch novamind-server start-server as a subprocess.
+        """Launch the host-side novamind-operation zipapp in server mode.
+
+        The zipapp lives in public/ only. Setting NOVAMIND_SERVER_MODE=1 makes
+        its __main__ dispatch to saas_bench.server_entry.main() instead of the
+        client-side CLI. The server process runs in the parent environment
+        (outside bwrap) so it has access to NMDB_KEY.
 
         Reads the first line of stdout to get the port, then waits for /health.
         """
-        server_script = self.agent_workspace / "novamind-server"
+        zipapp_path = self._public_dir() / "novamind-operation"
+        server_env = os.environ.copy()
+        server_env["NOVAMIND_SERVER_MODE"] = "1"
         self._server_proc = subprocess.Popen(
             [
-                sys.executable, str(server_script),
+                sys.executable, str(zipapp_path),
                 "--base", str(self.agent_workspace),
                 "start-server",
                 "--session", self._session_id,
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=server_env,
         )
 
         # Read first line of stdout to get port info
@@ -621,13 +656,65 @@ __pycache__/
         """Initialize the simulation environment.
 
         Flow:
-        1. Copy public/ into workspace and run 'novamind-server new-session'
-        2. Launch 'novamind-server start-server' as subprocess
+        1. Copy public/ into workspace and create session via host-side CLI
+        2. Launch host-side 'novamind-server start-server' as subprocess
         3. Create agent and tool executor (communicate via HTTP)
+
+        The simulator bytecode (_engine/) and server launcher NEVER enter the
+        workspace — they stay in public/ on the host side.
         """
         from .agent import BashAgent
         from .tools import get_bash_agent_tool_descriptions, BashAgentToolExecutor, NextDayTimeoutError
         self._NextDayTimeoutError = NextDayTimeoutError
+
+        # Belt-and-suspenders: if a pre-patch run left legacy files in the
+        # workspace, purge them so the agent always sees the latest layout.
+        # Never let simulator bytecode leak into the workspace.
+        if self.agent_workspace.exists():
+            stale_names = [
+                "_engine",          # pre-L1: bundled engine bytecode
+                "novamind-server",  # pre-zipapp: separate server launcher
+                "novamind_api",     # pre-zipapp: top-level SDK (now docs/novamind_api)
+                "examples",         # pre-zipapp: top-level examples (now docs/examples)
+                "install.sh",       # pre-zipapp: PyInstaller bootstrap
+            ]
+            for stale_name in stale_names:
+                stale_path = self.agent_workspace / stale_name
+                if stale_path.is_dir():
+                    shutil.rmtree(stale_path, ignore_errors=True)
+                elif stale_path.is_file() or stale_path.is_symlink():
+                    try:
+                        stale_path.unlink()
+                    except OSError:
+                        pass
+
+            # Refresh docs/ and novamind-operation from the published build so
+            # resumed sessions pick up the new zipapp + relocated SDK source.
+            # Safe to overwrite: the agent never writes into docs/, and the
+            # old novamind-operation script is incompatible with the new
+            # NOVAMIND_SERVER_MODE dispatch.
+            if self.continue_from:
+                public_dir = self._public_dir()
+                src_docs = public_dir / "docs"
+                dst_docs = self.agent_workspace / "docs"
+                if src_docs.exists():
+                    if dst_docs.exists():
+                        shutil.rmtree(dst_docs, ignore_errors=True)
+                    shutil.copytree(
+                        src_docs, dst_docs,
+                        ignore=shutil.ignore_patterns('__pycache__'),
+                    )
+                src_op = public_dir / "novamind-operation"
+                dst_op = self.agent_workspace / "novamind-operation"
+                if src_op.exists():
+                    if dst_op.exists():
+                        try:
+                            dst_op.unlink()
+                        except OSError:
+                            pass
+                    shutil.copy2(src_op, dst_op)
+                    import stat as _stat
+                    dst_op.chmod(dst_op.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
 
         # ── Step 1: Copy public/ and create session via CLI ──
         if not self.continue_from:

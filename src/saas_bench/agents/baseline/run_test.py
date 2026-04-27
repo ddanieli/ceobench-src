@@ -758,7 +758,6 @@ class BaselineRunner:
             'set_prices': lambda args: self.tools.set_prices({k: v for k, v in args.items() if v is not None}),
             'set_model_tiers': lambda args: self.tools.set_model_tiers({k: v for k, v in args.items() if v is not None}),
             'set_daily_spend': lambda args: self.tools.set_daily_spend({k: v for k, v in args.items() if v is not None}),
-            'set_ad_channel_spend': lambda args: self.tools.set_ad_channel_spend({k: v for k, v in args.items() if v is not None}),
             'set_targeted_ad_spend': lambda args: self.tools.set_targeted_ad_spend(args.get('targeted_spend', args)),
             'set_capacity_tier': lambda args: self.tools.set_capacity_tier(args.get('tier', args.get('capacity_tier', 0))),
             'set_usage_quotas': lambda args: self.tools.set_usage_quotas(args),

@@ -4,13 +4,14 @@ from typing import Dict, Optional
 from . import _client
 
 
-def set_daily_spend(advertising: Optional[float] = None,
-                    operations: Optional[float] = None,
+def set_daily_spend(operations: Optional[float] = None,
                     development: Optional[float] = None) -> Dict:
-    """Set daily spending for advertising, operations, and development.
+    """Set daily spending for operations and development.
+
+    Note: advertising is NOT a parameter here. To spend on ads, use
+    `set_targeted_ad_spend` with {channel: {group: $/day}}.
 
     Args:
-        advertising: Daily advertising budget ($).
         operations: Daily operations budget ($).
         development: Daily development budget ($).
 
@@ -18,8 +19,6 @@ def set_daily_spend(advertising: Optional[float] = None,
         Dict with update confirmation.
     """
     args = {}
-    if advertising is not None:
-        args['advertising'] = advertising
     if operations is not None:
         args['operations'] = operations
     if development is not None:
@@ -27,27 +26,11 @@ def set_daily_spend(advertising: Optional[float] = None,
     return _client.call('set_daily_spend', args)
 
 
-def set_ad_channel_spend(**channel_percentages: float) -> Dict:
-    """Set per-channel advertising budget allocation as percentages.
-
-    Args:
-        social_media: Percentage allocation (0.0-1.0).
-        search_ads: Percentage allocation (0.0-1.0).
-        linkedin: Percentage allocation (0.0-1.0).
-        content_marketing: Percentage allocation (0.0-1.0).
-        referral_program: Percentage allocation (0.0-1.0).
-
-    Returns:
-        Dict with update confirmation.
-    """
-    return _client.call('set_ad_channel_spend', channel_percentages)
-
-
 def set_targeted_ad_spend(targeted_spend: Dict[str, Dict[str, float]]) -> Dict:
-    """Set per-group targeted advertising spend.
+    """Set per-(channel, group) ad spend. The ONLY way to spend on advertising.
 
     Args:
-        targeted_spend: {group_id: {channel: amount}} nested dict.
+        targeted_spend: {channel_id: {group_id: $/day}} nested dict.
 
     Returns:
         Dict with update confirmation.

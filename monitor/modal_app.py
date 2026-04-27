@@ -148,7 +148,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <table class="compare-table"><thead><tr>
           <th>Run</th><th>Model</th><th>Day</th><th>Progress</th>
           <th style="text-align:right">Cash</th><th style="text-align:right">Subscribers</th>
-          <th style="text-align:right">MRR</th><th style="text-align:right">Mo. Profit</th><th style="text-align:right">F. Dividends</th>
+          <th style="text-align:right">Wk. Profit</th><th style="text-align:right">F. Dividends</th>
           <th style="text-align:right">Turns</th><th>Last Action</th>
         </tr></thead><tbody id="compareBody"></tbody></table>
       </div>
@@ -170,14 +170,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="chart-box"><h3>Cash Balance</h3><canvas id="cashChart"></canvas></div>
       <div class="chart-box"><h3>Individual Subs + Enterprise Seats</h3><canvas id="subsChart"></canvas></div>
     </div>
-    <!-- Dividends + Monthly Profit -->
+    <!-- Dividends + Weekly Profit -->
     <div class="charts">
       <div class="chart-box"><h3>Founder Dividends (Cumulative)</h3><canvas id="divChart"></canvas></div>
-      <div class="chart-box"><h3>Monthly Profit (30-day windows)</h3><canvas id="profitChart"></canvas></div>
+      <div class="chart-box"><h3>Weekly Profit (7-day windows)</h3><canvas id="profitChart"></canvas></div>
     </div>
     <!-- Cash prediction % error (1wk / 4wk / 12wk on one plot) -->
     <div class="charts">
-      <div class="chart-box" style="grid-column:1/-1"><h3>Cash Prediction % Error by Horizon (1wk / 4wk / 12wk)</h3><canvas id="predictionChart" style="max-height:280px"></canvas></div>
+      <div class="chart-box" style="grid-column:1/-1"><h3>Cash Prediction % Error by Horizon (1wk / 4wk / 12wk / 26wk)</h3><canvas id="predictionChart" style="max-height:280px"></canvas></div>
+    </div>
+    <!-- Per-horizon: predicted cash + 95% CI band + actual cash -->
+    <div class="charts">
+      <div class="chart-box"><h3>Cash Forecast: 1 week (+7d) — predicted ± 95% CI vs actual</h3><canvas id="predCashH7" style="max-height:240px"></canvas></div>
+      <div class="chart-box"><h3>Cash Forecast: 4 weeks (+28d) — predicted ± 95% CI vs actual</h3><canvas id="predCashH28" style="max-height:240px"></canvas></div>
+    </div>
+    <div class="charts">
+      <div class="chart-box"><h3>Cash Forecast: 12 weeks (+84d) — predicted ± 95% CI vs actual</h3><canvas id="predCashH84" style="max-height:240px"></canvas></div>
+      <div class="chart-box"><h3>Cash Forecast: 26 weeks (+182d) — predicted ± 95% CI vs actual</h3><canvas id="predCashH182" style="max-height:240px"></canvas></div>
     </div>
     <!-- Timing -->
     <div class="charts">
@@ -187,6 +196,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="charts">
       <div class="chart-box"><h3>Reputation by Group</h3><canvas id="reputationChart"></canvas></div>
       <div class="chart-box"><h3>Effective Q_min (New Leads) by Group</h3><canvas id="qminChart"></canvas></div>
+    </div>
+    <!-- Per-group q_bias drift only (excludes global) -->
+    <div class="charts">
+      <div class="chart-box" style="grid-column:1/-1"><h3>Per-Group q_bias Drift Only (excludes global; isolates group reactivity to competitor shocks)</h3><canvas id="qminDriftOnlyChart" style="max-height:280px"></canvas></div>
     </div>
     <!-- Quality -->
     <div class="charts">
@@ -298,14 +311,15 @@ function renderOverview(){
   for(var i=0;i<runs.length;i++){var r=runs[i];var p=pct(r.current_day||0,r.total_days||1095);
     var hb=r.last_heartbeat;var hbAge=hb?Math.floor((Date.now()-new Date(hb))/1000):null;var hbColor=hbAge!==null?(hbAge<60?'var(--green)':hbAge<300?'var(--yellow)':'var(--red)'):'var(--text2)';var hbDot='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+hbColor+';margin-right:4px"></span>';
     var lastAct=(r.recent_activity||r.recent_actions||[])[0];var lastActHtml=hbDot+(hb?'<span style="font-size:11px;color:'+hbColor+'">'+timeAgo(hb)+'</span> ':'')+(lastAct?(lastAct.type==='llm'?'<span style="color:var(--accent);font-weight:600">\ud83e\udde0 LLM '+(lastAct.elapsed_s||'?')+'s</span>':'<span style="color:var(--purple);font-weight:600">'+(actEmoji[lastAct.tool]||'\u2699\ufe0f')+' '+esc(lastAct.tool)+'</span>'):'');
-    var mp=r.monthly_profit;var mpCol=mp!=null?(mp>=0?'color:var(--green)':'color:var(--red)'):'';
-    tbody+='<tr style="cursor:pointer" onclick="selectRun(\''+r.run_id+'\')"><td><strong>'+esc(r.label)+'</strong><br><span style="color:var(--text2);font-size:11px">'+r.run_id+'</span></td><td style="font-size:12px">'+esc(r.model||'')+'</td><td class="num">'+(r.current_day||'\u2014')+'</td><td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;background:var(--bg);border-radius:3px;height:4px"><div style="width:'+p+'%;background:var(--accent);height:100%;border-radius:3px"></div></div><span style="font-size:11px;color:var(--text2);min-width:35px">'+p+'%</span></div></td><td class="num" style="color:'+((r.cash||0)<0?'var(--red)':'var(--green)')+'">'+fmtCash(r.cash)+'</td><td class="num">'+fmt(r.subscribers)+'</td><td class="num">'+fmtCash(r.mrr)+'</td><td class="num" style="'+mpCol+'">'+(mp!=null?fmtCash(mp):'\u2014')+'</td><td class="num" style="color:var(--yellow)">'+fmtCash(r.founder_dividends)+'</td><td class="num">'+fmt(r.agent_turns)+'</td><td style="font-size:12px">'+lastActHtml+'</td></tr>'}
+    var wp=r.weekly_profit;var wpCol=wp!=null?(wp>=0?'color:var(--green)':'color:var(--red)'):'';
+    tbody+='<tr style="cursor:pointer" onclick="selectRun(\''+r.run_id+'\')"><td><strong>'+esc(r.label)+'</strong><br><span style="color:var(--text2);font-size:11px">'+r.run_id+'</span></td><td style="font-size:12px">'+esc(r.model||'')+'</td><td class="num">'+(r.current_day||'\u2014')+'</td><td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;background:var(--bg);border-radius:3px;height:4px"><div style="width:'+p+'%;background:var(--accent);height:100%;border-radius:3px"></div></div><span style="font-size:11px;color:var(--text2);min-width:35px">'+p+'%</span></div></td><td class="num" style="color:'+((r.cash||0)<0?'var(--red)':'var(--green)')+'">'+fmtCash(r.cash)+'</td><td class="num">'+fmt(r.subscribers)+'</td><td class="num" style="'+wpCol+'">'+(wp!=null?fmtCash(wp):'\u2014')+'</td><td class="num" style="color:var(--yellow)">'+fmtCash(r.founder_dividends)+'</td><td class="num">'+fmt(r.agent_turns)+'</td><td style="font-size:12px">'+lastActHtml+'</td></tr>'}
   $('#compareBody').innerHTML=tbody;
   var cards='';
   for(var i=0;i<runs.length;i++){var r=runs[i];var p=pct(r.current_day||0,r.total_days||1095);
     var raHtml='';var ra=(r.recent_activity||r.recent_actions||[]).slice(0,3);if(ra.length){raHtml='<div class="recent-actions">';for(var j=0;j<ra.length;j++){var a=ra[j];if(a.type==='llm'){raHtml+='<div class="ra-item"><span class="ra-tool" style="color:var(--accent)">\ud83e\udde0 LLM '+(a.elapsed_s||'?')+'s</span><span class="ra-args">'+esc(a.preview||'')+'</span><span class="ra-time">'+timeAgo(a.timestamp)+'</span></div>'}else{var em=actEmoji[a.tool]||'\u2699\ufe0f';raHtml+='<div class="ra-item"><span class="ra-tool">'+em+' '+esc(a.tool)+'</span><span class="ra-args">'+esc(a.preview||briefArgs(a.arguments)||'')+'</span><span class="ra-time">'+timeAgo(a.timestamp)+'</span></div>'}}raHtml+='</div>'}
     var hb2=r.last_heartbeat;var hbAge2=hb2?Math.floor((Date.now()-new Date(hb2))/1000):null;var hbCol2=hbAge2!==null?(hbAge2<60?'var(--green)':hbAge2<300?'var(--yellow)':'var(--red)'):'var(--text2)';var hbLabel=hb2?'<span style="font-size:10px;color:'+hbCol2+'"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+hbCol2+';margin-right:3px"></span>Active '+timeAgo(hb2)+'</span>':'';
-    cards+='<div class="run-card'+(currentRun===r.run_id?' active':'')+'" onclick="selectRun(\''+r.run_id+'\')"><div class="label" style="display:flex;align-items:center;gap:8px">'+esc(r.label)+' '+hbLabel+'</div><div class="meta">'+esc(r.model||'')+' \u00b7 seed '+r.seed+' \u00b7 '+r.run_id+'</div><div class="stats"><div>Cash: <span class="val cash">'+fmtCash(r.cash)+'</span></div><div>Subs: <span class="val">'+fmt(r.subscribers)+'</span></div><div>MRR: <span class="val">'+fmtCash(r.mrr)+'</span></div><div>Divs: <span class="val divs">'+fmtCash(r.founder_dividends)+'</span></div></div><div class="progress-bar"><div class="progress-fill" style="width:'+p+'%"></div></div><div class="progress-text">Day '+(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%) \u00b7 '+fmt(r.agent_turns||r.tool_calls_count)+' turns</div>'+raHtml+'</div>'}
+    var wpc=r.weekly_profit;var wpcCol=wpc!=null?(wpc>=0?'var(--green)':'var(--red)'):'var(--text)';
+    cards+='<div class="run-card'+(currentRun===r.run_id?' active':'')+'" onclick="selectRun(\''+r.run_id+'\')"><div class="label" style="display:flex;align-items:center;gap:8px">'+esc(r.label)+' '+hbLabel+'</div><div class="meta">'+esc(r.model||'')+' \u00b7 seed '+r.seed+' \u00b7 '+r.run_id+'</div><div class="stats"><div>Cash: <span class="val cash">'+fmtCash(r.cash)+'</span></div><div>Subs: <span class="val">'+fmt(r.subscribers)+'</span></div><div>Wk. Profit: <span class="val" style="color:'+wpcCol+'">'+(wpc!=null?fmtCash(wpc):'\u2014')+'</span></div><div>Divs: <span class="val divs">'+fmtCash(r.founder_dividends)+'</span></div></div><div class="progress-bar"><div class="progress-fill" style="width:'+p+'%"></div></div><div class="progress-text">Day '+(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%) \u00b7 '+fmt(r.agent_turns||r.tool_calls_count)+' turns</div>'+raHtml+'</div>'}
   $('#runCards').innerHTML=cards;
   var sel=$('#runSelect');var cv=sel.value;sel.innerHTML='<option value="">— All Runs Overview —</option>';
   for(var i=0;i<runs.length;i++){var r=runs[i];sel.innerHTML+='<option value="'+r.run_id+'"'+(r.run_id===cv?' selected':'')+'>'+esc(r.label)+' ('+r.run_id+')</option>'}
@@ -317,8 +331,8 @@ function renderDetail(){
   if(!currentRun)return;var r=(allData.runs||[]).find(function(x){return x.run_id===currentRun});if(!r)return;
   var p=pct(r.current_day||0,r.total_days||1095);
   $('#detailTitle').textContent=r.label+' \u2014 '+r.model+' ('+r.run_id+')';
-  var mpColor=r.monthly_profit!=null?(r.monthly_profit>=0?'color:var(--green)':'color:var(--red)'):'';
-  var stats=[{l:'Day',v:(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%)'},{l:'Cash',v:fmtCash(r.cash),c:(r.cash||0)<0?'color:var(--red)':'color:var(--green)'},{l:'Subscribers',v:fmt(r.subscribers)},{l:'MRR',v:fmtCash(r.mrr)},{l:'Mo. Profit',v:r.monthly_profit!=null?fmtCash(r.monthly_profit):'\u2014',c:mpColor},{l:'F. Dividends',v:fmtCash(r.founder_dividends),c:'color:var(--yellow)'},{l:'Agent Turns',v:fmt(r.agent_turns||r.tool_calls_count)},{l:'Avg Day Time',v:r.timing_avg_day?r.timing_avg_day+'s':'\u2014',c:'color:var(--accent)'}];
+  var wpColor=r.weekly_profit!=null?(r.weekly_profit>=0?'color:var(--green)':'color:var(--red)'):'';
+  var stats=[{l:'Day',v:(r.current_day||'?')+' / '+(r.total_days||'?')+' ('+p+'%)'},{l:'Cash',v:fmtCash(r.cash),c:(r.cash||0)<0?'color:var(--red)':'color:var(--green)'},{l:'Subscribers',v:fmt(r.subscribers)},{l:'Wk. Profit',v:r.weekly_profit!=null?fmtCash(r.weekly_profit):'\u2014',c:wpColor},{l:'F. Dividends',v:fmtCash(r.founder_dividends),c:'color:var(--yellow)'},{l:'Agent Turns',v:fmt(r.agent_turns||r.tool_calls_count)},{l:'Avg Day Time',v:r.timing_avg_day?r.timing_avg_day+'s':'\u2014',c:'color:var(--accent)'}];
   $('#detailStats').innerHTML=stats.map(function(s){return'<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">'+s.l+'</div><div style="font-size:18px;font-weight:700;margin-top:2px;'+(s.c||'')+'">'+s.v+'</div></div>'}).join('');
   renderDiscovery(r);renderCharts(r);renderNewCharts(r);renderActions(r);renderResponses(r);renderRationales(r);renderTiming(r);renderAgentPosts(r);renderCustomerPosts(r);
 }
@@ -340,12 +354,24 @@ function renderCharts(r){
   if(charts.subs)charts.subs.destroy();
   var seatData=r.seat_series||[];
   var subData=r.sub_series||[];
-  var stackOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}};
-  if(seatData.length){charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:stackOpts,data:{labels:seatData.map(function(d){return d.day}),datasets:[{label:'Individual',data:seatData.map(function(d){return d.individual}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.3)',fill:true},{label:'Enterprise Seats',data:seatData.map(function(d){return d.enterprise_seats}),borderColor:'#f0883e',backgroundColor:'rgba(240,136,62,0.3)',fill:true}]}})}
+  var byGroup=r.seat_series_by_group||[];
+  var stackOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:9},boxWidth:10}},tooltip:{mode:'index',intersect:false}},scales:{x:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:1}}};
+  if(byGroup.length){
+    var sgDays=[...new Set(byGroup.map(function(d){return d.day}))].sort(function(a,b){return a-b});
+    var sgGroups=[...new Set(byGroup.map(function(d){return d.group_id}))].sort();
+    var sgKey={};
+    for(var i=0;i<byGroup.length;i++){var d=byGroup[i];sgKey[d.day+'|'+d.group_id]=d.count}
+    var sgDatasets=sgGroups.map(function(gid){
+      var c=GROUP_COLORS[gid]||'#888';
+      return{label:gid,data:sgDays.map(function(day){return sgKey[day+'|'+gid]||0}),borderColor:c,backgroundColor:c+'55',fill:true}
+    });
+    charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:stackOpts,data:{labels:sgDays,datasets:sgDatasets}})
+  }
+  else if(seatData.length){charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:stackOpts,data:{labels:seatData.map(function(d){return d.day}),datasets:[{label:'Individual',data:seatData.map(function(d){return d.individual}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.3)',fill:true},{label:'Enterprise Seats',data:seatData.map(function(d){return d.enterprise_seats}),borderColor:'#f0883e',backgroundColor:'rgba(240,136,62,0.3)',fill:true}]}})}
   else{charts.subs=new Chart($('#subsChart').getContext('2d'),{type:'line',options:lineOpts,data:{labels:subData.map(function(d){return d.day}),datasets:[{label:'Subscribers',data:subData.map(function(d){return d.subscribers}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true}]}})};
   if(charts.div)charts.div.destroy();
   charts.div=new Chart($('#divChart').getContext('2d'),{type:'line',options:lineOpts,data:{labels:(r.dividend_series||[]).map(function(d){return d.day}),datasets:[{label:'Founder Dividends',data:(r.dividend_series||[]).map(function(d){return d.dividends}),borderColor:'#d29922',backgroundColor:'rgba(210,153,34,0.1)',fill:true}]}});
-  // Monthly Profit chart (bar chart: revenue, costs, profit line)
+  // Weekly Profit chart (bar chart: revenue, costs, profit line)
   if(charts.profit)charts.profit.destroy();
   var profitData=r.profit_series||[];
   if(profitData.length){
@@ -379,6 +405,19 @@ function renderNewCharts(r){
       var byDay={};gdata.forEach(function(d){byDay[d.day]=d.q_min});
       return{label:gid,data:qDays.map(function(d){return byDay[d]||null}),borderColor:GROUP_COLORS[gid]||'#888',borderWidth:2,fill:false,pointRadius:0}});
     charts.qmin=new Chart($('#qminChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:2}}},data:{labels:qDays,datasets:qDatasets}});
+  }
+
+  // Per-group q_bias drift only chart (excludes global accumulator)
+  var qminDriftOnlyData=r.qmin_drift_only_series||[];
+  if(charts.qminDriftOnly)charts.qminDriftOnly.destroy();
+  if(qminDriftOnlyData.length){
+    var qdGroups=[...new Set(qminDriftOnlyData.map(function(d){return d.group_id}))];
+    var qdDays=[...new Set(qminDriftOnlyData.map(function(d){return d.day}))].sort(function(a,b){return a-b});
+    var qdDatasets=qdGroups.map(function(gid){
+      var gdata=qminDriftOnlyData.filter(function(d){return d.group_id===gid});
+      var byDay={};gdata.forEach(function(d){byDay[d.day]=d.drift_q_bias});
+      return{label:gid,data:qdDays.map(function(d){return byDay[d]||null}),borderColor:GROUP_COLORS[gid]||'#888',borderWidth:1.5,fill:false,pointRadius:0}});
+    charts.qminDriftOnly=new Chart($('#qminDriftOnlyChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:9}},position:'right'}},scales:{x:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{point:{radius:0},line:{borderWidth:1.5}}},data:{labels:qdDays,datasets:qdDatasets}});
   }
 
   // Quality chart (group × plan)
@@ -417,18 +456,59 @@ function renderNewCharts(r){
     var sampled=ds.filter(function(_,i){return i%step===0||i===ds.length-1});
     charts.timing=new Chart($('#timingChart').getContext('2d'),{type:'bar',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}}},scales:{x:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:9}}},y:{stacked:true,grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}}},elements:{bar:{borderRadius:1}}},data:{labels:sampled.map(function(d){return d.day}),datasets:[{label:'LLM',data:sampled.map(function(d){return d.llm_total_s||0}),backgroundColor:'rgba(88,166,255,0.7)'},{label:'step_day',data:sampled.map(function(d){return d.step_day_s||0}),backgroundColor:'rgba(240,136,62,0.7)'},{label:'tools',data:sampled.map(function(d){return d.tool_total_s||0}),backgroundColor:'rgba(188,140,255,0.7)'}]}});
   }
-  // Cash prediction % error (1wk / 4wk / 12wk) on one plot — x-axis = target_day
+  // Cash prediction % error (1wk / 4wk / 12wk / 26wk) on one plot — x-axis = target_day
   var predData=r.prediction_accuracy_series||[];
   if(charts.prediction)charts.prediction.destroy();
   if(predData.length){
-    var horizonMeta={7:{label:'1wk (+7d)',color:'#58a6ff'},28:{label:'4wk (+28d)',color:'#d29922'},84:{label:'12wk (+84d)',color:'#bc8cff'}};
+    var horizonMeta={7:{label:'1wk (+7d)',color:'#58a6ff'},28:{label:'4wk (+28d)',color:'#d29922'},84:{label:'12wk (+84d)',color:'#bc8cff'},182:{label:'26wk (+182d)',color:'#f85149'}};
     var allDays=[...new Set(predData.map(function(d){return d.target_day}))].sort(function(a,b){return a-b});
-    var predDatasets=[7,28,84].map(function(h){
+    var predDatasets=[7,28,84,182].map(function(h){
       var rows=predData.filter(function(d){return d.horizon_days===h});
       var byDay={};rows.forEach(function(d){byDay[d.target_day]=d.pct_diff});
       return{label:horizonMeta[h].label,data:allDays.map(function(d){return d in byDay?byDay[d]:null}),borderColor:horizonMeta[h].color,backgroundColor:horizonMeta[h].color+'22',borderWidth:2,fill:false,pointRadius:2,spanGaps:true};
     });
     charts.prediction=new Chart($('#predictionChart').getContext('2d'),{type:'line',options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:10}}},tooltip:{callbacks:{title:function(items){return'Target day '+items[0].label},label:function(ctx){return ctx.dataset.label+': '+(ctx.parsed.y==null?'\u2014':ctx.parsed.y.toFixed(1)+'%')}}}},scales:{x:{title:{display:true,text:'Target day (day when actual cash was measured)',color:'#8b949e',font:{size:10}},grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},y:{title:{display:true,text:'% error: (predicted − actual) / |actual| × 100',color:'#8b949e',font:{size:10}},grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10},callback:function(v){return v.toFixed(0)+'%'}}}},elements:{line:{borderWidth:2}}},data:{labels:allDays,datasets:predDatasets}});
+  }
+
+  // Per-horizon cash forecast plots: predicted cash + 95% CI band + actual cash overlay
+  var cashSeries=r.cash_series||[];
+  var horizonsCash=[7,28,84,182];
+  var horizonCanvasIds={7:'predCashH7',28:'predCashH28',84:'predCashH84',182:'predCashH182'};
+  for(var hi=0;hi<horizonsCash.length;hi++){
+    var hh=horizonsCash[hi];
+    var key='predCash'+hh;
+    if(charts[key])charts[key].destroy();
+    var hRows=predData.filter(function(d){return d.horizon_days===hh&&d.predicted_lower!=null&&d.predicted_upper!=null});
+    if(!hRows.length)continue;
+    // Sort by target_day so the band fills correctly.
+    hRows.sort(function(a,b){return a.target_day-b.target_day});
+    var actualPts=cashSeries.map(function(d){return{x:d.day,y:d.cash}});
+    var predictedPts=hRows.map(function(d){return{x:d.target_day,y:d.predicted_value}});
+    var upperPts=hRows.map(function(d){return{x:d.target_day,y:d.predicted_upper}});
+    var lowerPts=hRows.map(function(d){return{x:d.target_day,y:d.predicted_lower}});
+    var ctx=$('#'+horizonCanvasIds[hh]);
+    if(!ctx)continue;
+    charts[key]=new Chart(ctx.getContext('2d'),{
+      type:'line',
+      data:{datasets:[
+        {label:'Upper 95% CI',data:upperPts,borderColor:'rgba(188,140,255,0)',pointRadius:0,fill:false,order:4,parsing:false},
+        {label:'95% CI band',data:lowerPts,borderColor:'rgba(188,140,255,0)',backgroundColor:'rgba(188,140,255,0.18)',pointRadius:0,fill:'-1',order:3,parsing:false},
+        {label:'Predicted cash',data:predictedPts,borderColor:'#bc8cff',backgroundColor:'transparent',borderWidth:2,pointRadius:2.5,pointBackgroundColor:'#bc8cff',fill:false,order:1,parsing:false,spanGaps:true},
+        {label:'Actual cash',data:actualPts,borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,0.06)',borderWidth:2,pointRadius:0,fill:false,order:0,parsing:false}
+      ]},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{labels:{color:'#8b949e',font:{size:10},filter:function(item){return item.text!=='Upper 95% CI'}}},
+          tooltip:{mode:'nearest',intersect:false,callbacks:{label:function(c){return c.dataset.label+': $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString():'?')}}}
+        },
+        scales:{
+          x:{type:'linear',title:{display:true,text:'Day',color:'#8b949e',font:{size:10}},grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10}}},
+          y:{title:{display:true,text:'Cash ($)',color:'#8b949e',font:{size:10}},grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10},callback:function(v){return'$'+(Math.abs(v)>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0))}}}
+        },
+        elements:{line:{borderWidth:2}}
+      }
+    });
   }
 
   // Cumulative timing bars

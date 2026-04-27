@@ -75,14 +75,18 @@ def call(tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any
     return result.get('data', {})
 
 
-def next_week(predictions: Dict[str, float] = None) -> Dict[str, Any]:
+def next_week(predictions: Dict[str, Any] = None) -> Dict[str, Any]:
     """Advance the simulator by one week (7 days).
 
     Args:
-        predictions: Required dict with numeric values for keys
-            ``cash_1wk``, ``cash_4wk``, ``cash_12wk`` — the agent's
-            predicted cash on hand at +7d, +28d, +84d from today.
-            The server will return 400 if any is missing.
+        predictions: Required dict with one entry per horizon. Required keys:
+            ``cash_1wk``, ``cash_4wk``, ``cash_12wk``, ``cash_26wk`` — the
+            agent's cash forecast at +7d, +28d, +84d, +182d (~6 months).
+            Each value must be a dict with three numeric fields:
+            ``point`` (point estimate), ``lower`` (95% CI lower bound),
+            ``upper`` (95% CI upper bound). Constraint per horizon:
+            ``lower <= point <= upper``. Server returns 400 on any
+            missing key, missing field, non-numeric value, or violated constraint.
 
     Returns:
         Dict with 'day' and 'dashboard' keys
@@ -90,12 +94,22 @@ def next_week(predictions: Dict[str, float] = None) -> Dict[str, Any]:
     if predictions is None:
         raise NovaMindAPIError(
             "next_week() requires 'predictions' dict with keys "
-            "cash_1wk, cash_4wk, cash_12wk (all numeric)."
+            "cash_1wk, cash_4wk, cash_12wk, cash_26wk; each value an object "
+            "{point, lower, upper} (95% CI bounds in dollars)."
         )
+
+    def _entry(p):
+        return {
+            "point": float(p["point"]),
+            "lower": float(p["lower"]),
+            "upper": float(p["upper"]),
+        }
+
     body = json.dumps({"predictions": {
-        "cash_1wk": float(predictions["cash_1wk"]),
-        "cash_4wk": float(predictions["cash_4wk"]),
-        "cash_12wk": float(predictions["cash_12wk"]),
+        "cash_1wk":  _entry(predictions["cash_1wk"]),
+        "cash_4wk":  _entry(predictions["cash_4wk"]),
+        "cash_12wk": _entry(predictions["cash_12wk"]),
+        "cash_26wk": _entry(predictions["cash_26wk"]),
     }}).encode('utf-8')
 
     url = f"{_base_url()}/next-week"

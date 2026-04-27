@@ -29,8 +29,8 @@ New customers join through several channels:
 - Each channel has different effectiveness per customer group — effectiveness values determine how many leads you get per dollar spent in that channel for each group
 - `ads_strength` is a multiplier on ad effectiveness (default 1.0) — increase it to amplify lead generation from all ad spend
 - In-app ads generate daily revenue per subscriber (proportional to ads strength × seat count), but degrade perceived quality — this is a revenue-vs-quality trade-off. Set via `set_ads_strength`
-- Set overall budget with `set_daily_spend`, channel split with `set_ad_channel_spend`
-- Target specific groups with additional per-group spend via `set_targeted_ad_spend`
+- All ad spend is per-(channel, group) via `set_targeted_ad_spend({channel: {group: $/day}})`. There is no aggregate ad budget — every dollar must be allocated to a specific channel and group.
+- `set_daily_spend` only handles `operations` and `development` (not advertising).
 
 **Promotions:**
 - Offer discounts to attract new leads or retain existing subscribers
@@ -84,7 +84,7 @@ Each customer has a personal quality-price curve:
 ### Quality Dynamics
 - Development spending improves quality: global improvement = 0.0045 × ln(1 + global_spend/5000), targeted per-group improvement = 0.0225 × ln(1 + targeted_spend/5000) (5× coefficient, stacks with global)
 - Customer expected quality drifts upward over time (global drift + per-group drift)
-- Competitor events occur randomly and raise customer quality expectations across all groups — these are permanent upward shifts that cannot be reversed, only offset via dev spending or R&D breakthroughs.
+- Competitor events occur randomly and raise customer quality expectations across all groups — these are permanent upward shifts that cannot be reversed, only offset via dev spending or R&D breakthroughs. Different customer groups react to the same competitor event with different magnitudes (some groups are highly trend-sensitive; others — e.g. compliance-bound enterprises — barely move), so the expectation gap widens unevenly across your book. Competitor activity is visible in the social media feed (`get_social_posts`), so you can monitor rival launches/announcements there.
 - R&D research tiers provide permanent quality boosts (10 independent tiers)
 
 ### Churn & Plan Changes
@@ -188,18 +188,29 @@ You can call any tool any number of times within a week. Advance to the next wee
 
 **NOTE:** The `next_week` call may take a long time (several minutes) at large subscriber counts. The simulator processes billing, churn, usage, reputation, and other mechanics for every customer individually across 7 simulated days. This is normal and expected — just wait for the response. Do not assume the call has failed or timed out.
 
-## Weekly Cash Predictions (MANDATORY)
+## Weekly Cash Forecasts with 95% Confidence Intervals (MANDATORY)
 
-Before advancing to the next week, you **MUST** submit three cash predictions. The `next-week` command takes three positional arguments in this exact order:
+Before advancing to the next week, you **MUST** submit cash forecasts at FOUR horizons. For each horizon submit a **point estimate** plus **95% confidence interval lower and upper bounds**. The `next-week` command takes 12 positional arguments in this exact order:
 
 ```
-./novamind-operation next-week <cash_1wk> <cash_4wk> <cash_12wk>
+./novamind-operation next-week \
+    <cash_1wk_point>  <cash_1wk_lower>  <cash_1wk_upper>  \
+    <cash_4wk_point>  <cash_4wk_lower>  <cash_4wk_upper>  \
+    <cash_12wk_point> <cash_12wk_lower> <cash_12wk_upper> \
+    <cash_26wk_point> <cash_26wk_lower> <cash_26wk_upper>
 ```
 
-- `cash_1wk` — your predicted cash on hand **7 simulated days** from the current day (i.e. at the end of the week you are about to advance into).
-- `cash_4wk` — your predicted cash on hand **28 simulated days** from the current day.
-- `cash_12wk` — your predicted cash on hand **84 simulated days** from the current day.
+| Horizon | Days | Fields |
+|---------|------|--------|
+| 1 week  | +7   | `cash_1wk_point`,  `cash_1wk_lower`,  `cash_1wk_upper`  |
+| 4 weeks | +28  | `cash_4wk_point`,  `cash_4wk_lower`,  `cash_4wk_upper`  |
+| 12 weeks | +84  | `cash_12wk_point`, `cash_12wk_lower`, `cash_12wk_upper` |
+| 26 weeks (~6 mo) | +182 | `cash_26wk_point`, `cash_26wk_lower`, `cash_26wk_upper` |
 
-All three values are required numbers (dollars, e.g. `1250000.0`). There is no way to skip or pass a null; the call will fail with a 400 error if any are missing or non-numeric.
+**Constraint per horizon:** `lower <= point <= upper`. The server returns 400 if any field is missing, non-numeric, or violates the ordering.
+
+A *95% confidence interval* means: you believe there's a 95% probability the actual cash on day `submit_day + horizon` will fall inside `[lower, upper]`. Submit *honest* intervals — wide for uncertain horizons (say, 6 months), narrow when you have high confidence (e.g. 1 week if cash flow is stable).
+
+All values are dollars (e.g. `1250000.0`). All 12 are required.
 
 Predictions are stored at submission time; updating them later is not possible. Plan your forecast before you advance.

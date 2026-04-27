@@ -35,7 +35,6 @@ _TOOL_TO_MODULE = {
     'set_usage_quotas': 'pricing',
     'set_promotion': 'pricing',
     'set_daily_spend': 'marketing',
-    'set_ad_channel_spend': 'marketing',
     'set_targeted_ad_spend': 'marketing',
     'set_ads_strength': 'marketing',
     'set_lead_promotion': 'marketing',
@@ -124,39 +123,18 @@ def render_cli_docs(output_dir: Path):
 
 
 def initialize_workspace(workspace_path: Path):
-    """Initialize a bash_agent working directory with docs.
+    """Initialize a bash_agent per-session scratch directory.
+
+    After the zipapp refactor the docs + SDK source live in the *published
+    repo root* (``<base>/docs/*``), not per-session. This keeps the workspace
+    to just the ephemeral state the agent writes itself.
 
     Creates:
         workspace_path/
-            daily_scripts/      — Auto-executed scripts directory
-            docs/
-                api/            — API docs (one JSON per module)
-                tables/         — Table docs (one JSON per table)
-                cli.md          — CLI reference
+            daily_scripts/    — Auto-executed scripts directory
 
     Args:
-        workspace_path: Root working directory for the agent.
+        workspace_path: Per-session scratch root for the agent.
     """
     workspace_path.mkdir(parents=True, exist_ok=True)
-
-    # Create daily_scripts directory
     (workspace_path / "daily_scripts").mkdir(exist_ok=True)
-
-    # Copy the full novamind_api package source into workspace.
-    # The package is self-contained (stdlib only, no saas_bench dependency)
-    # so the agent can `import novamind_api` without access to the simulator source.
-    import shutil
-    src_api_dir = Path(__file__).parent / "novamind_api"
-    dest_api_dir = workspace_path / "novamind_api"
-    if dest_api_dir.exists():
-        shutil.rmtree(dest_api_dir)
-    shutil.copytree(
-        src_api_dir, dest_api_dir,
-        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
-    )
-
-    # Render docs
-    docs_dir = workspace_path / "docs"
-    render_api_docs(docs_dir / "api")
-    render_table_docs(docs_dir / "tables")
-    render_cli_docs(docs_dir)

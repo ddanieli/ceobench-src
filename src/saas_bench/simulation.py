@@ -22,6 +22,8 @@ from .config import (
     WEEKLY_MULTIPLIERS, MONTHLY_MULTIPLIERS,
     # v2.1: Non-Stationary Customer Preferences
     GROUP_PREFERENCE_DRIFT,
+    # Competitor-event per-group q_bias reactivity coefficients
+    COMPETITOR_REACTIVITY_Q_BIAS,
     # v2.2: Individual Subscriber Drift
     INDIVIDUAL_PREFERENCE_DRIFT,
     # v3: Macroeconomic Cycle
@@ -473,17 +475,20 @@ class Simulator:
                     )
                 """, (rate, group_id))
 
-            # q_bias individual drift: additive shift to both q_min and q_max (no caps/floors)
+            # q_bias individual drift: multiplicative growth applied equally to q_min AND q_max.
+            # Both endpoints scale by (1 + rate_compounded_over_days), so the participation
+            # band widens (q_max moves more in absolute terms than q_min) while the entire
+            # curve shifts up. No caps/floors.
             if 'q_bias_drift' in indiv_rates:
-                bias = indiv_rates['q_bias_drift'] * days
+                rate = compound(indiv_rates['q_bias_drift'])
                 self.conn.execute("""
                     UPDATE customer_state SET
-                        current_q_min = CASE WHEN current_q_min IS NOT NULL THEN current_q_min + ? ELSE NULL END,
-                        current_q_max = CASE WHEN current_q_max IS NOT NULL THEN current_q_max + ? ELSE NULL END
+                        current_q_min = CASE WHEN current_q_min IS NOT NULL THEN current_q_min * (1.0 + ?) ELSE NULL END,
+                        current_q_max = CASE WHEN current_q_max IS NOT NULL THEN current_q_max * (1.0 + ?) ELSE NULL END
                     WHERE customer_id IN (
                         SELECT customer_id FROM _tmp_active_subs WHERE group_id = ?
                     )
-                """, (bias, bias, group_id))
+                """, (rate, rate, group_id))
 
             # steepness_left individual drift: multiplicative update
             if 'steepness_left_drift' in indiv_rates:
@@ -1707,29 +1712,27 @@ class Simulator:
         channel_leads = {g: {} for g in active_groups}
 
         # =========================================================================
-        # Calculate channel leads: spend × leads_per_1000_dollars / 1000
+        # Calculate channel leads from per-(channel, group) targeted ad spend ONLY.
+        # Ad spend is NEVER channel-only or aggregate — every dollar is allocated to
+        # a specific (channel, group) pair via set_targeted_ad_spend.
+        #     expected_leads = spend × leads_per_1000_dollars / 1000
         # =========================================================================
         for channel_id, channel in AD_CHANNELS.items():
-            spend_key = f'ad_spend_{channel_id}'
-            spend = config.get(spend_key, 0)
-
-            if spend <= 0:
-                continue
-
-            for group_id in active_groups:
-                # Get leads_per_1k for this group — direct lookup (all 26 groups have explicit entries)
+            channel_targets = self.config.targeted_ad_spend.get(channel_id, {})
+            for group_id, spend in channel_targets.items():
+                if spend <= 0:
+                    continue
+                if group_id not in active_groups:
+                    continue
                 leads_per_1k = channel.leads_per_1000_dollars.get(group_id)
                 if leads_per_1k is None:
                     continue
 
-                # Add targeted spend for this (channel, group) pair
-                targeted = self.config.targeted_ad_spend.get(channel_id, {}).get(group_id, 0)
-                effective_spend = spend + targeted
-                expected_leads = effective_spend * leads_per_1k / 1000.0
+                expected_leads = spend * leads_per_1k / 1000.0
                 if expected_leads > 0:
                     channel_leads[group_id][channel_id] = expected_leads
 
-                # Log channel spend for analytics (leads_generated updated after Poisson sampling below)
+                # Log per-(channel, group) spend for analytics (leads_generated set after Poisson sampling).
                 self.conn.execute("""
                     INSERT INTO ad_channel_leads (day, channel_id, group_id, leads_generated, spend)
                     VALUES (?, ?, ?, 0, ?)
@@ -4894,6 +4897,18 @@ Requirements:
         # via the _drift_cache mechanism — no need to bulk-update customer_state
         update_global_drift(self.conn, boost)
 
+        # Per-group competitor-event q_bias shock: each group gets an additional
+        # coef × boost added to its drift_q_bias_total accumulator. Coefficients
+        # encode how reactive that group's customers are to competitor news
+        # (e.g. fast switchers vs. compliance-locked enterprises). Applies to ALL
+        # groups — including discoverable groups that haven't been discovered yet
+        # — so that when they later get discovered, sampled customers already
+        # reflect the full history of competitor pressure.
+        for group_id, coef in COMPETITOR_REACTIVITY_Q_BIAS.items():
+            if coef == 0.0:
+                continue
+            update_group_drift(self.conn, group_id, coef * boost, 0.0, self.current_day)
+
         # No notification for competitor events (agent can observe via social media / quality metrics)
 
     def _generate_competitor_event_posts(self):
@@ -6408,13 +6423,14 @@ Guidelines:
         total_costs += compute_costs
         add_ledger_entry(self.conn, self.current_day, 'compute', -compute_costs, 'Compute costs')
 
-        # Daily spending
-        for category in ['advertising', 'operations', 'development']:
+        # Daily spending: operations + development only.
+        # Advertising spend is exclusively per-(channel, group) via targeted_ad_spend below.
+        for category in ['operations', 'development']:
             spend = config[f'spend_{category}']
             add_ledger_entry(self.conn, self.current_day, category, -spend, f'Daily {category} spend')
             total_costs += spend
 
-        # Targeted ad spend (additional per-group per-channel spend)
+        # Per-(channel, group) ad spend — the ONLY way to spend on advertising.
         total_targeted = sum(
             sum(groups.values())
             for groups in self.config.targeted_ad_spend.values()

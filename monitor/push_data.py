@@ -24,6 +24,8 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 RUNS_DIR = _PROJECT_ROOT / "bash_agent_runs"
+RUNS_DIRS = [_PROJECT_ROOT / "bash_agent_runs", _PROJECT_ROOT / "codex_agent_runs"]
+RUN_PARENT: dict[str, Path] = {}
 OUTPUT_FILE = Path(__file__).parent / "data.json"
 MODAL_VOLUME = "bossbench-monitor-data"
 
@@ -48,20 +50,39 @@ class _CachedConn:
 _DB_CACHE: dict[str, tuple[float, int, sqlite3.Connection]] = {}
 
 
-def _open_run_db(run_dir: Path):
-    """Open the run's obfuscated .nmdb database into an in-memory connection.
+def _close_cached_conn(conn):
+    """Close a conn from load_session_db(in_memory=False) and unlink its tmp file."""
+    tmp_path = getattr(conn, "_tmp_path", None)
+    try:
+        conn.close()
+    except Exception:
+        pass
+    if tmp_path:
+        import os
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except Exception:
+            pass
 
-    Returns a cached wrapper if nmdb mtime+size match a prior decrypt,
-    otherwise re-decrypts. Decrypting a 233MB nmdb takes ~20s, so caching
-    is essential when this is called ~25×/push cycle.
+
+def _open_run_db(run_dir: Path):
+    """Open the run's obfuscated .nmdb database as a file-backed SQLite conn.
+
+    Uses load_session_db(in_memory=False) so decrypted bytes live in a tmp file
+    on disk rather than :memory: — a 4.5 GB run would otherwise peak ~20 GB RSS
+    and get OOM-killed by the user cgroup.
+
+    Returns a cached wrapper if nmdb mtime+size match a prior decrypt. Each
+    cache entry owns a tmp file that is unlinked when the entry is evicted.
     """
-    nmdb_path = run_dir / "world.nmdb"
-    if not nmdb_path.exists() or nmdb_path.stat().st_size == 0:
-        candidates = [c for c in run_dir.rglob("world.nmdb") if c.stat().st_size > 0]
-        if candidates:
-            nmdb_path = max(candidates, key=lambda c: c.stat().st_size)
-        else:
-            return None
+    # Prefer the most recently modified nmdb across the run dir — top-level
+    # copies can be stale/torn from a prior run's exit while the live session
+    # keeps writing fresh copies at agent_workspace/sessions/<sid>/world.nmdb.
+    candidates = [c for c in run_dir.rglob("world.nmdb") if c.stat().st_size > 0]
+    if not candidates:
+        return None
+    nmdb_path = max(candidates, key=lambda c: c.stat().st_mtime)
     key = str(nmdb_path)
     st = nmdb_path.stat()
     cached = _DB_CACHE.get(key)
@@ -69,14 +90,11 @@ def _open_run_db(run_dir: Path):
         return _CachedConn(cached[2])
     try:
         from saas_bench.db_protection import load_session_db
-        conn = load_session_db(nmdb_path)
+        conn = load_session_db(nmdb_path, in_memory=False)
     except Exception:
         return None
     if cached is not None:
-        try:
-            cached[2].close()
-        except Exception:
-            pass
+        _close_cached_conn(cached[2])
     _DB_CACHE[key] = (st.st_mtime, st.st_size, conn)
     return _CachedConn(conn)
 
@@ -87,10 +105,16 @@ RUN_REGISTRY = {
 
 
 def get_run_ids():
-    if not RUNS_DIR.exists():
-        return []
-    dirs = sorted(RUNS_DIR.iterdir())
-    ids = [d.name.replace("run_", "") for d in dirs if d.is_dir() and d.name.startswith("run_")]
+    RUN_PARENT.clear()
+    for parent in RUNS_DIRS:
+        if not parent.exists():
+            continue
+        for d in sorted(parent.iterdir()):
+            if d.is_dir() and d.name.startswith("run_"):
+                rid = d.name.replace("run_", "")
+                # First writer wins (bash_agent_runs is listed first).
+                RUN_PARENT.setdefault(rid, parent)
+    ids = list(RUN_PARENT.keys())
     registry_order = list(RUN_REGISTRY.keys())
     known = [r for r in registry_order if r in ids]
     unknown = [r for r in ids if r not in registry_order]
@@ -138,7 +162,7 @@ def get_dividend_series_from_db(run_dir: Path, max_points: int = 200) -> list:
 
 
 def get_profit_series_from_db(run_dir: Path, max_points: int = 200) -> list:
-    """Monthly (30-day rolling) profit series. Returns list of {day, revenue, costs, profit}."""
+    """Weekly (7-day non-overlapping) profit series. Returns list of {day, revenue, costs, profit}."""
     conn = _open_run_db(run_dir)
     if not conn:
         return []
@@ -150,10 +174,10 @@ def get_profit_series_from_db(run_dir: Path, max_points: int = 200) -> list:
             return []
         max_day = max_day_row[0]
         series = []
-        # Rolling 30-day windows sampled every 7 days for smoother chart
-        day = 29  # first full 30-day window ends at day 29 (days 0-29)
+        # Non-overlapping 7-day windows
+        day = 6  # first full 7-day window ends at day 6 (days 0-6)
         while day <= max_day:
-            start_day = day - 29
+            start_day = day - 6
             row = conn.execute("""
                 SELECT
                     COALESCE(SUM(CASE WHEN amount > 0 AND category != 'initial_funding' THEN amount ELSE 0 END), 0) as revenue,
@@ -244,6 +268,45 @@ def get_quality_series_from_db(run_dir: Path, max_points: int = 200) -> list:
         return []
 
 
+def get_qmin_drift_only_series_from_db(run_dir: Path, max_points: int = 200) -> list:
+    """Per-group q_bias drift accumulator (no global, no base) over time.
+
+    This isolates the GROUP-specific drift contribution — both the daily
+    `GROUP_PREFERENCE_DRIFT.q_bias_drift` and the per-group competitor-event
+    shocks (`COMPETITOR_REACTIVITY_Q_BIAS[g] × boost`). Useful for visualizing
+    how different groups react to the same market shocks (otherwise dominated
+    by the much larger global accumulator at chart y-scale).
+
+    Returns rows like {day, group_id, drift_q_bias} so the dashboard can plot
+    one line per group starting from 0 at day 0.
+    """
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(_hidden_group_params_history)").fetchall()}
+        if 'drift_q_bias_total' not in cols:
+            return []  # old schema — drift-only view not available
+        rows = conn.execute(
+            "SELECT day, group_id, drift_q_bias_total "
+            "FROM _hidden_group_params_history ORDER BY day, group_id"
+        ).fetchall()
+        if not rows:
+            return []
+        series = [
+            {"day": r[0], "group_id": r[1], "drift_q_bias": round(r[2], 5)}
+            for r in rows
+        ]
+        unique_days = sorted(set(s["day"] for s in series))
+        if len(unique_days) > max_points:
+            step = len(unique_days) // max_points
+            keep_days = set(d for i, d in enumerate(unique_days) if i % step == 0 or i == len(unique_days) - 1)
+            series = [s for s in series if s["day"] in keep_days]
+        return series
+    except Exception:
+        return []
+
+
 def get_qmin_series_from_db(run_dir: Path, max_points: int = 200) -> list:
     """Effective q_min per group over time from _hidden_group_params_history.
 
@@ -318,12 +381,14 @@ def get_prediction_accuracy_series(run_dir: Path, max_points: int = 300) -> list
     reached. Returns a flat list of rows keyed by (submit_day, horizon_days):
 
         {
-            "submit_day": int,        # day prediction was made
-            "target_day": int,        # submit_day + horizon_days
-            "horizon_days": int,      # 7, 28, or 84
-            "predicted_value": float, # dollars
-            "actual_value": float,    # dollars (cumulative ledger at target_day)
-            "pct_diff": float,        # (predicted - actual) / actual * 100
+            "submit_day": int,            # day prediction was made
+            "target_day": int,            # submit_day + horizon_days
+            "horizon_days": int,          # 7, 28, 84, or 182
+            "predicted_value": float,     # dollars (point estimate)
+            "predicted_lower": float|None, # 95% CI lower (None for legacy rows)
+            "predicted_upper": float|None, # 95% CI upper (None for legacy rows)
+            "actual_value": float,        # dollars (cumulative ledger at target_day)
+            "pct_diff": float,            # (predicted - actual) / actual * 100
         }
 
     Rows are sorted by submit_day, then horizon_days. Rows whose target day
@@ -341,8 +406,15 @@ def get_prediction_accuracy_series(run_dir: Path, max_points: int = 300) -> list
             conn.close()
             return []
 
-        preds = conn.execute("""
-            SELECT submit_day, horizon_days, metric, predicted_value
+        # Detect which CI columns exist (older runs only have predicted_value).
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(predictions)").fetchall()}
+        has_ci = 'predicted_lower' in cols and 'predicted_upper' in cols
+        select_cols = "submit_day, horizon_days, metric, predicted_value"
+        if has_ci:
+            select_cols += ", predicted_lower, predicted_upper"
+
+        preds = conn.execute(f"""
+            SELECT {select_cols}
             FROM predictions
             WHERE metric = 'cash'
             ORDER BY submit_day, horizon_days
@@ -377,7 +449,13 @@ def get_prediction_accuracy_series(run_dir: Path, max_points: int = 300) -> list
                 cash_on_day[d] = running
 
         series = []
-        for submit_day, horizon_days, _metric, predicted_value in preds:
+        for row in preds:
+            if has_ci:
+                submit_day, horizon_days, _metric, predicted_value, predicted_lower, predicted_upper = row
+            else:
+                submit_day, horizon_days, _metric, predicted_value = row
+                predicted_lower = None
+                predicted_upper = None
             target_day = submit_day + horizon_days
             if target_day > max_day:
                 continue  # can't score yet
@@ -392,6 +470,8 @@ def get_prediction_accuracy_series(run_dir: Path, max_points: int = 300) -> list
                 "target_day": int(target_day),
                 "horizon_days": int(horizon_days),
                 "predicted_value": round(float(predicted_value), 2),
+                "predicted_lower": round(float(predicted_lower), 2) if predicted_lower is not None else None,
+                "predicted_upper": round(float(predicted_upper), 2) if predicted_upper is not None else None,
                 "actual_value": round(float(actual), 2),
                 "pct_diff": round(pct, 3),
             })
@@ -436,6 +516,42 @@ def get_seat_series_from_db(run_dir: Path, max_points: int = 200) -> list:
         if len(series) > max_points:
             step = len(series) // max_points
             series = [s for i, s in enumerate(series) if i % step == 0 or i == len(series) - 1]
+        return series
+    except Exception:
+        return []
+
+
+def get_seat_series_by_group_from_db(run_dir: Path, max_points: int = 200) -> list:
+    """Per-group seat counts per day. Returns list of {day, group_id, count}."""
+    conn = _open_run_db(run_dir)
+    if not conn:
+        return []
+    try:
+        days = [d for (d,) in conn.execute(
+            "SELECT DISTINCT day FROM _hidden_group_params_history ORDER BY day"
+        ).fetchall()]
+        if not days:
+            conn.close()
+            return []
+        if len(days) > max_points:
+            step = len(days) // max_points
+            days = [d for i, d in enumerate(days) if i % step == 0 or i == len(days) - 1]
+        series = []
+        for day in days:
+            rows = conn.execute(
+                """SELECT c.group_id, COALESCE(SUM(s.seat_count), 0) AS seats
+                   FROM subscriptions s
+                   LEFT JOIN customers c ON s.customer_id = c.customer_id
+                   WHERE s.status IN ('subscribed', 'cancelled')
+                     AND s.start_day <= ? AND (s.end_day IS NULL OR s.end_day > ?)
+                   GROUP BY c.group_id""",
+                (day, day),
+            ).fetchall()
+            for gid, count in rows:
+                if gid is None:
+                    continue
+                series.append({"day": day, "group_id": gid, "count": int(count)})
+        conn.close()
         return series
     except Exception:
         return []
@@ -595,7 +711,8 @@ def _resolve_inner_run_dir(run_dir: Path) -> Path:
 
 
 def get_run_data(run_id: str) -> dict:
-    run_dir = RUNS_DIR / f"run_{run_id}"
+    parent = RUN_PARENT.get(run_id, RUNS_DIR)
+    run_dir = parent / f"run_{run_id}"
     inner_dir = _resolve_inner_run_dir(run_dir)
     reg = RUN_REGISTRY.get(run_id, {})
     data = {
@@ -621,6 +738,7 @@ def get_run_data(run_id: str) -> dict:
 
     # Config
     config_path = inner_dir / "config.json"
+    data["agent_type"] = None
     if config_path.exists():
         with open(config_path) as f:
             cfg = json.load(f)
@@ -628,6 +746,10 @@ def get_run_data(run_id: str) -> dict:
             data["seed"] = cfg.get("seed", data["seed"])
             if data["total_days"] is None:
                 data["total_days"] = cfg.get("total_days")
+            data["agent_type"] = cfg.get("agent_type")
+    # Fallback: infer from which runs-parent dir holds this run_id
+    if not data["agent_type"]:
+        data["agent_type"] = "codex" if parent.name == "codex_agent_runs" else "bash_agent"
 
     # Checkpoint
     cp_path = inner_dir / "checkpoint.json"
@@ -794,13 +916,32 @@ def get_run_data(run_id: str) -> dict:
     # Cash prediction accuracy per horizon (1wk / 4wk / 12wk)
     data["prediction_accuracy_series"] = get_prediction_accuracy_series(run_dir)
 
-    # Monthly profit series (30-day rolling windows)
+    # Weekly profit series (7-day non-overlapping windows)
     profit_series = get_profit_series_from_db(run_dir)
     data["profit_series"] = profit_series
-    if profit_series:
-        data["monthly_profit"] = profit_series[-1]["profit"]
-    else:
-        data["monthly_profit"] = None
+
+    # Weekly profit (last 7 days net cash flow from ledger)
+    data["weekly_profit"] = None
+    db_conn_wp = _open_run_db(run_dir)
+    if db_conn_wp:
+        try:
+            max_day_row = db_conn_wp.execute("SELECT MAX(day) FROM ledger").fetchone()
+            if max_day_row and max_day_row[0] is not None:
+                max_day = max_day_row[0]
+                start_day = max(0, max_day - 6)
+                row = db_conn_wp.execute(
+                    "SELECT COALESCE(SUM(amount), 0) FROM ledger "
+                    "WHERE day BETWEEN ? AND ? AND category != 'initial_funding'",
+                    (start_day, max_day)
+                ).fetchone()
+                data["weekly_profit"] = round(row[0], 2) if row else 0.0
+        except Exception as e:
+            data.setdefault("db_errors", []).append(f"weekly_profit: {e}")
+        finally:
+            try:
+                db_conn_wp.close()
+            except Exception:
+                pass
 
     # Discovered groups — used to filter charts
     discovered = get_discovered_group_ids(run_dir)
@@ -814,11 +955,20 @@ def get_run_data(run_id: str) -> dict:
     # Q_min per group over time (discovered only)
     data["qmin_series"] = [s for s in get_qmin_series_from_db(run_dir) if s["group_id"] in discovered]
 
+    # Per-group q_bias drift only — isolates group reactivity to competitor shocks
+    # (excludes the much larger global accumulator). Discovered groups only.
+    data["qmin_drift_only_series"] = [
+        s for s in get_qmin_drift_only_series_from_db(run_dir) if s["group_id"] in discovered
+    ]
+
     # Ads revenue per group over time (discovered only)
     data["ads_revenue_series"] = [s for s in get_ads_revenue_series_from_db(run_dir) if s["group_id"] in discovered]
 
     # Seat series (individual + enterprise)
     data["seat_series"] = get_seat_series_from_db(run_dir)
+
+    # Seat series broken down per customer group
+    data["seat_series_by_group"] = get_seat_series_by_group_from_db(run_dir)
 
     # Group discovery status
     data["group_discovery"] = get_group_discovery_from_db(run_dir)

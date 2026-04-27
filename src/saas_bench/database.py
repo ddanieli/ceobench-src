@@ -175,12 +175,14 @@ TABLE_DOCS = {
         }
     },
     'predictions': {
-        'description': 'Cash predictions submitted by the agent at each next-week call. Populated by the 3 positional args to `novamind-operation next-week`. Each next-week submission inserts 3 rows (horizons 7, 28, 84 days). Scored on percent error vs actual cash at each horizon.',
+        'description': 'Cash forecasts submitted by the agent at each next-week call. Populated by the 12 positional args to `novamind-operation next-week`. Each next-week submission inserts 4 rows (horizons 7, 28, 84, 182 days) with point estimate plus 95% CI lower/upper bounds. Scored on point percent error, CI coverage (does actual fall in [lower, upper]?), and sharpness (interval width / actual) at each horizon.',
         'columns': {
             'submit_day': 'INTEGER — Simulation day when the prediction was submitted (current day at time of next-week call)',
-            'horizon_days': 'INTEGER — Prediction horizon in days (7, 28, or 84)',
+            'horizon_days': 'INTEGER — Prediction horizon in days (7, 28, 84, or 182)',
             'metric': "TEXT — Metric being predicted (currently only 'cash')",
-            'predicted_value': 'REAL — The agent-supplied predicted value in dollars',
+            'predicted_value': 'REAL — Agent-supplied point estimate in dollars',
+            'predicted_lower': 'REAL — 95% CI lower bound in dollars (NULL for legacy rows)',
+            'predicted_upper': 'REAL — 95% CI upper bound in dollars (NULL for legacy rows)',
             'submitted_at': 'REAL — Wall-clock epoch seconds when the prediction was submitted',
         }
     },
@@ -1002,15 +1004,24 @@ def init_database(db_path: Path) -> sqlite3.Connection:
 
         CREATE TABLE IF NOT EXISTS predictions (
             submit_day INTEGER NOT NULL,                     -- Simulation day when prediction was submitted
-            horizon_days INTEGER NOT NULL,                   -- Horizon in days (7, 28, 84)
+            horizon_days INTEGER NOT NULL,                   -- Horizon in days (7, 28, 84, 182)
             metric TEXT NOT NULL,                            -- Metric name ('cash' for v1)
-            predicted_value REAL NOT NULL,                   -- Agent's predicted value
+            predicted_value REAL NOT NULL,                   -- Agent's point-estimate predicted value
+            predicted_lower REAL,                            -- 95% CI lower bound (nullable for backward-compat with older rows)
+            predicted_upper REAL,                            -- 95% CI upper bound (nullable for backward-compat with older rows)
             submitted_at REAL NOT NULL,                      -- Wall-clock epoch seconds
             PRIMARY KEY (submit_day, horizon_days, metric)
         );
         CREATE INDEX IF NOT EXISTS idx_predictions_submit_day ON predictions(submit_day);
         CREATE INDEX IF NOT EXISTS idx_predictions_metric ON predictions(metric, horizon_days);
     """)
+
+    # Migration: add 95% CI bound columns to existing predictions tables.
+    for col in ('predicted_lower', 'predicted_upper'):
+        try:
+            conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     # V2.3 migration: ads system + promotion system columns
     for col, col_type in [
@@ -1537,26 +1548,37 @@ def save_predictions(conn: sqlite3.Connection, submit_day: int,
                      predictions: dict, submitted_at: float) -> None:
     """Save a batch of predictions submitted on ``submit_day``.
 
-    ``predictions`` maps horizon_days (int) -> {metric: predicted_value}.
+    ``predictions`` maps horizon_days (int) -> {metric: value}, where ``value``
+    is either a float (point estimate only — back-compat) or a dict with keys
+    ``point``, ``lower``, ``upper`` (the 95% CI bounds plus the point estimate).
     For v1 only ``metric='cash'`` is used.
     """
     rows = []
     for horizon_days, metric_values in predictions.items():
-        for metric, predicted_value in metric_values.items():
+        for metric, value in metric_values.items():
+            if isinstance(value, dict):
+                point = float(value['point'])
+                lower = float(value['lower']) if value.get('lower') is not None else None
+                upper = float(value['upper']) if value.get('upper') is not None else None
+            else:
+                point = float(value)
+                lower = None
+                upper = None
             rows.append((int(submit_day), int(horizon_days), str(metric),
-                         float(predicted_value), float(submitted_at)))
+                         point, lower, upper, float(submitted_at)))
     if rows:
         conn.executemany("""
             INSERT OR REPLACE INTO predictions
-            (submit_day, horizon_days, metric, predicted_value, submitted_at)
-            VALUES (?, ?, ?, ?, ?)
+            (submit_day, horizon_days, metric, predicted_value, predicted_lower, predicted_upper, submitted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, rows)
 
 
 def get_predictions(conn: sqlite3.Connection, metric: str = "cash") -> list:
     """Return all predictions for ``metric`` ordered by submit_day."""
     result = conn.execute("""
-        SELECT submit_day, horizon_days, metric, predicted_value, submitted_at
+        SELECT submit_day, horizon_days, metric, predicted_value,
+               predicted_lower, predicted_upper, submitted_at
         FROM predictions
         WHERE metric = ?
         ORDER BY submit_day ASC, horizon_days ASC
