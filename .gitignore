@@ -105,7 +105,7 @@ analysis/
 build/
 dist/
 # Generated docs are in public/docs; we DO track top-level docs/ for
-# user-facing markdown (e.g. docs/decrypting-database.md).
+# user-facing markdown (e.g. docs/analyze_trajectory.md).
 docs/*
 !docs/*.md
 modal_deploy/
@@ -115,7 +115,10 @@ plots/
 prompts/
 presentation/
 sequence-diagram/
-tests/
+# tests/ is internal-only, except test_docs_coverage.py which build_public.py
+# runs as a preflight check — it must ship so a fresh clone can rebuild public/.
+tests/*
+!tests/test_docs_coverage.py
 tools/
 variants/
 viz/
