@@ -2,10 +2,21 @@
   <img src="assets/mascot.png" alt="CEO-Bench mascot" width="220"/>
 </p>
 
-# 🤖 CEO-Bench: Can Agents Play the Long Game?
+<h1 align="center">CEO-Bench: Can Agents Play the Long Game?</h1>
 
-Source repository for **CEO-Bench**, a long-horizon agent benchmark in which an
-LLM agent operates a fictional AI startup for 500 simulated days.
+<p align="center">
+  <a href="https://tonychen.xyz/">Haozhe Chen</a>,
+  <a href="https://www.cs.princeton.edu/~karthikn/">Karthik Narasimhan</a>,
+  <a href="https://www.cs.princeton.edu/~zhuangl/">Zhuang Liu</a>
+</p>
+
+<p align="center">Princeton University</p>
+
+<p align="center">
+  <a href="https://ceobench.com">Website</a> &nbsp;|&nbsp;
+  <a href="#">Paper</a> &nbsp;|&nbsp;
+  <a href="https://ceobench.com/trajectory-viewer/">Trajectory Viewer</a>
+</p>
 
 
 
