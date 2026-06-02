@@ -31,6 +31,7 @@ if str(package_root) not in sys.path:
     sys.path.insert(0, str(package_root))
 
 from openai import OpenAI
+from saas_bench.config import BenchmarkConfig
 
 try:
     import anthropic
@@ -68,8 +69,8 @@ class BashAgentRunner:
 
     def __init__(
         self,
-        model: str = "gpt-4o",
-        provider: str = "openai",
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         seed: int = 42,
@@ -81,15 +82,16 @@ class BashAgentRunner:
         continue_from: Optional[Path] = None,
         label: Optional[str] = None,
     ):
-        self.model = model
-        self.provider = provider
+        default_config = BenchmarkConfig()
+        self.model = model or default_config.agent_llm_model
+        self.provider = provider or default_config.agent_llm_provider
         self.seed = seed
         self.scenario = scenario
         # Round down to nearest full week so the simulation always ends on a
         # week boundary (no partial trailing week). e.g. 500 -> 497.
         self.total_days = (total_days // 7) * 7
         self.initial_cash = initial_cash
-        self.reasoning_effort = reasoning_effort
+        self.reasoning_effort = reasoning_effort or default_config.agent_llm_reasoning_effort
         self.continue_from = continue_from
         self.label = label  # Optional human-readable variant tag — surfaced on the dashboard
 
@@ -190,45 +192,45 @@ class BashAgentRunner:
                 "in .env or the environment."
             ) from exc
 
-        self.use_anthropic = provider in ("anthropic", "bedrock")
+        self.use_anthropic = self.provider in ("anthropic", "bedrock")
 
         if api_key:
             self.api_key = api_key
-        elif provider == "xai":
+        elif self.provider == "xai":
             self.api_key = env_vars.get("XAI_API_KEY") or os.environ.get("XAI_API_KEY")
-        elif provider == "google":
+        elif self.provider == "google":
             self.api_key = env_vars.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        elif provider == "anthropic":
+        elif self.provider == "anthropic":
             self.api_key = env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-        elif provider == "bedrock":
+        elif self.provider == "bedrock":
             self.api_key = None
-        elif provider == "modal":
+        elif self.provider == "modal":
             self.api_key = env_vars.get("MODAL_API_KEY") or os.environ.get("MODAL_API_KEY")
-        elif provider == "together":
+        elif self.provider == "together":
             self.api_key = env_vars.get("TOGETHER_API_KEY") or os.environ.get("TOGETHER_API_KEY")
-        elif provider == "ai_sandbox":
+        elif self.provider == "ai_sandbox":
             self.api_key = env_vars.get("AI_SANDBOX_KEY") or os.environ.get("AI_SANDBOX_KEY")
         else:
             self.api_key = env_vars.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
 
-        if not self.api_key and provider not in ("bedrock",):
-            raise ValueError(f"No API key found for provider {provider}")
+        if not self.api_key and self.provider not in ("bedrock",):
+            raise ValueError(f"No API key found for provider {self.provider}")
 
         if base_url:
             self.base_url = base_url
-        elif provider == "xai":
+        elif self.provider == "xai":
             self.base_url = "https://api.x.ai/v1"
-        elif provider == "google":
+        elif self.provider == "google":
             self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
-        elif provider == "modal":
+        elif self.provider == "modal":
             self.base_url = os.environ.get("MODAL_BASE_URL")
-        elif provider == "together":
+        elif self.provider == "together":
             self.base_url = "https://api.together.xyz/v1"
         else:
             self.base_url = None
 
         # Create client
-        if provider == "bedrock":
+        if self.provider == "bedrock":
             if not ANTHROPIC_AVAILABLE:
                 raise ImportError("anthropic package required for Bedrock")
             self.client = AnthropicBedrock(
@@ -237,11 +239,11 @@ class BashAgentRunner:
                 aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
                 aws_region=os.environ.get("AWS_REGION", "us-east-2"),
             )
-        elif provider == "anthropic":
+        elif self.provider == "anthropic":
             if not ANTHROPIC_AVAILABLE:
                 raise ImportError("anthropic package required")
             self.client = anthropic.Anthropic(api_key=self.api_key)
-        elif provider == "ai_sandbox":
+        elif self.provider == "ai_sandbox":
             try:
                 from portkey_ai import Portkey
             except ImportError as e:
@@ -485,8 +487,7 @@ __pycache__/
         (self.agent_workspace / "daily_scripts").mkdir(exist_ok=True)
 
         # Run new-session via the HOST-SIDE zipapp (bytecode stays on host).
-        env = os.environ.copy()
-        env["NOVAMIND_SERVER_MODE"] = "1"
+        env = self._server_environment()
         result = subprocess.run(
             [
                 sys.executable, str(src_op),
@@ -537,6 +538,12 @@ __pycache__/
                 )
         return public_dir
 
+    def _server_environment(self) -> Dict[str, str]:
+        """Environment for host-side simulator processes."""
+        env = os.environ.copy()
+        env["NOVAMIND_SERVER_MODE"] = "1"
+        return env
+
     def _launch_server(self):
         """Launch the host-side novamind-operation zipapp in server mode.
 
@@ -548,8 +555,7 @@ __pycache__/
         Reads the first line of stdout to get the port, then waits for /health.
         """
         zipapp_path = self._public_dir() / "novamind-operation"
-        server_env = os.environ.copy()
-        server_env["NOVAMIND_SERVER_MODE"] = "1"
+        server_env = self._server_environment()
         # Route api_server stderr to a file rather than a pipe back to bash_agent.
         # bash_agent never drains the pipe during a /call, so a single buffered
         # traceback (>64KB pipe capacity) wedges write() under self._lock and
@@ -645,7 +651,7 @@ __pycache__/
             flagged.append(str(suspicious.relative_to(self.agent_workspace)))
         return flagged
 
-    def _save_checkpoint(self, day: int):
+    def _save_checkpoint(self, day: int, fetch_daily_scripts: bool = True):
         """Save checkpoint for resume capability."""
         # Tamper detection: log + persist any suspicious files in workspace.
         tamper_hits = self._check_tamper(day)
@@ -662,21 +668,23 @@ __pycache__/
 
         # Get daily scripts from server
         daily_scripts = {}
-        try:
-            resp = self._http_get('/daily-scripts')
-            if resp.get('success'):
-                # The GET endpoint returns script names/sizes, not content
-                # For full content we need to query differently
-                # For now, save empty — the scripts are also in the session dir
+        if fetch_daily_scripts:
+            try:
+                resp = self._http_get('/daily-scripts')
+                if resp.get('success'):
+                    # The GET endpoint returns script names/sizes, not content
+                    # For full content we need to query differently
+                    # For now, save empty — the scripts are also in the session dir
+                    pass
+            except Exception:
                 pass
-        except Exception:
-            pass
 
         checkpoint = {
             'day': day,
             'run_id': self.run_id,
             'model': self.model,
             'provider': self.provider,
+            'reasoning_effort': self.reasoning_effort,
             'seed': self.seed,
             'scenario': self.scenario,
             'agent_total_turns': self.agent.total_turns if self.agent else 0,
@@ -959,6 +967,7 @@ __pycache__/
             'run_id': self.run_id,
             'model': self.model,
             'provider': self.provider,
+            'reasoning_effort': self.reasoning_effort,
             'seed': self.seed,
             'scenario': self.scenario,
             'total_days': self.total_days,
@@ -1039,6 +1048,9 @@ __pycache__/
         current_day = start_day - 1
         game_ended = False
         game_outcome = None
+        sim_day = current_day
+        _cash = 0
+        last_status: Dict[str, Any] = {}
 
         for day in range(start_day, self.total_days + 1):
             _day_start = _time.monotonic()
@@ -1047,6 +1059,7 @@ __pycache__/
             # Get actual simulation day from server (may differ from harness loop counter
             # when agent uses next-week which advances 7 sim days per loop iteration)
             status = self._get_game_status()
+            last_status = status
             sim_day = status.get('day', day)
 
             if verbose:
@@ -1155,6 +1168,7 @@ __pycache__/
 
                 # Check server for timeout (via game-status)
                 status = self._get_game_status()
+                last_status = status
                 sim_day = status.get('day', sim_day)  # Update sim_day after potential next-week
                 self._commit_weeks_up_to(sim_day)  # Commit any sim-week boundary just crossed
 
@@ -1188,10 +1202,14 @@ __pycache__/
             if game_ended:
                 break
 
-            # If day didn't end through agent action, force step_day via HTTP.
+            # If the agent did not call next-week within this harness chunk, do
+            # not fabricate a /next-week call. The API requires the same
+            # rationale/prediction payload that the agent-facing CLI collects.
+            # Continuing at the same sim day preserves benchmark semantics and
+            # avoids noisy HTTP 400s from an empty forced advance.
             # Exception: on the very first outer iteration after a mid-day
             # resume (agent's last logged tool was NOT next-week), suppress
-            # the force once so the agent can keep planning. Flag is cleared
+            # the warning once so the agent can keep planning. Flag is cleared
             # after one iteration so subsequent days behave normally.
             _step_elapsed = 0
             if not day_ended:
@@ -1199,21 +1217,11 @@ __pycache__/
                     print(f"  [resume] Skipping force step_day on resume iter (last tool was not next-week)")
                     self._suppress_force_step_day_once = False
                 else:
-                    _step_start = _time.monotonic()
-                    resp = self._advance_day_http()
-                    _step_elapsed = _time.monotonic() - _step_start
-
-                    if not resp.get('success'):
-                        error = resp.get('error', '')
-                        if error == 'step_day_timeout':
-                            print(f"\n⚠️  step_day timed out on sim day {sim_day} ({_step_elapsed:.1f}s)")
-                            print(f"Auto-quitting. Saving checkpoint...")
-                            self._save_checkpoint(sim_day)
-                            game_ended = True
-                            game_outcome = 'timeout'
-                            break
-                        else:
-                            print(f"\n❌ advance_day failed: {error}")
+                    print(
+                        f"\n⚠️  Turn cap reached on sim day {sim_day} without next-week; "
+                        f"continuing at the same sim day."
+                    )
+                    self._log_timing("turn_cap_no_advance", sim_day, turns=turns_today)
 
             # Log step_day timing
             self._log_timing("step_day", sim_day, elapsed_s=round(_step_elapsed, 2))
@@ -1224,6 +1232,7 @@ __pycache__/
 
             # Get post-day status (also refresh sim_day)
             status = self._get_game_status()
+            last_status = status
             sim_day = status.get('day', sim_day)
             self._commit_weeks_up_to(sim_day)  # Commit any sim-week boundary crossed by step_day
             _subs = status.get('subscribers', 0)
@@ -1295,12 +1304,28 @@ __pycache__/
                 break
 
         if not game_outcome:
-            game_outcome = 'completed'
+            game_outcome = 'completed' if sim_day >= self.total_days else 'incomplete'
 
-        # Stop server
+        # Read final state before shutdown; after _stop_server() the HTTP cash
+        # helper intentionally cannot query the in-memory simulator anymore.
+        final_status = dict(last_status)
+        if self._server_port:
+            try:
+                queried_status = self._http_get('/game-status')
+                if queried_status:
+                    final_status = queried_status
+                    sim_day = queried_status.get('day', sim_day)
+            except Exception:
+                pass
+
+        final_cash = final_status.get('cash')
+        if final_cash is None:
+            final_cash = self._get_cash() if self._server_port else _cash
+
+        # Stop server, then checkpoint so world.nmdb is copied after shutdown
+        # has drained async saves and written the fresh session DB.
         self._stop_server()
-
-        final_cash = self._get_cash() if self._server_port else _cash
+        self._save_checkpoint(sim_day, fetch_daily_scripts=False)
 
         if verbose:
             print(f"\n{'='*60}")
@@ -1331,11 +1356,13 @@ __pycache__/
 def main():
     import argparse
 
+    default_config = BenchmarkConfig()
     parser = argparse.ArgumentParser(description="Run bash agent for SaaS Bench")
-    parser.add_argument("--model", default="gpt-4o", help="Model name")
-    parser.add_argument("--provider", default="openai",
+    parser.add_argument("--model", default=None,
+                        help=f"Model name (default: BenchmarkConfig.agent_llm_model={default_config.agent_llm_model})")
+    parser.add_argument("--provider", default=None,
                         choices=["openai", "xai", "google", "anthropic", "bedrock", "modal", "together", "ai_sandbox"],
-                        help="API provider")
+                        help=f"API provider (default: BenchmarkConfig.agent_llm_provider={default_config.agent_llm_provider})")
     parser.add_argument("--base-url", help="Custom API base URL")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--scenario", default="default", help="Scenario name")
@@ -1344,7 +1371,8 @@ def main():
     parser.add_argument("--quiet", action="store_true", help="Suppress verbose output")
     parser.add_argument("--reasoning-effort",
                         choices=["none", "low", "medium", "high", "xhigh", "max"],
-                        help="Reasoning effort for GPT-5.2+ models")
+                        help="Reasoning effort for reasoning models "
+                             f"(default: BenchmarkConfig.agent_llm_reasoning_effort={default_config.agent_llm_reasoning_effort})")
     parser.add_argument("--continue-from", type=Path,
                         help="Path to previous run directory to resume from")
     parser.add_argument("--api-key", help="API key (overrides .env and environment)")
@@ -1352,7 +1380,6 @@ def main():
                         help="Variant tag stored in config.json and shown on the dashboard "
                              "(e.g. 'leads_x1.25'). Lets multiple config variants be "
                              "distinguished without forking the run_id scheme.")
-
     args = parser.parse_args()
 
     runner = BashAgentRunner(

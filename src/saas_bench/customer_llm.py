@@ -745,9 +745,10 @@ Output JSON:
         enterprise_provider = self.config.enterprise_llm_provider
 
         try:
-            if enterprise_provider == "bedrock":
-                # Use Bedrock Sonnet 4.5 for enterprise negotiations
-                response = self.bedrock_client.messages.create(
+            if enterprise_provider in ("bedrock", "anthropic"):
+                # Bedrock and direct Anthropic share the .messages.create() API.
+                client = self.bedrock_client if enterprise_provider == "bedrock" else self.anthropic_client
+                response = client.messages.create(
                     model=enterprise_model,
                     max_tokens=self.config.enterprise_llm_max_tokens,
                     temperature=self.config.enterprise_llm_temperature,
@@ -761,9 +762,9 @@ Output JSON:
                 output_tokens = response.usage.output_tokens
             else:
                 # Fallback to OpenAI
-                print(f"[WARN] Negotiation response using OpenAI fallback (provider={enterprise_provider}, model={enterprise_model}). Set enterprise_llm_provider='bedrock' for Sonnet 4.5.")
+                print(f"[WARN] Negotiation response using OpenAI fallback (provider={enterprise_provider}, model={enterprise_model}). Set enterprise_llm_provider='bedrock' or 'anthropic' for Sonnet 4.5.")
                 response = self.client.responses.create(
-                    model=self.model,
+                    model=enterprise_model,
                     reasoning={"effort": self.reasoning_effort},
                     input=[
                         {"role": "system", "content": system_prompt},
@@ -900,9 +901,10 @@ Output ONLY the message text."""
         enterprise_provider = self.config.enterprise_llm_provider
 
         try:
-            if enterprise_provider == "bedrock":
-                # Use Bedrock Sonnet 4.5 for initial outreach
-                response = self.bedrock_client.messages.create(
+            if enterprise_provider in ("bedrock", "anthropic"):
+                # Bedrock and direct Anthropic share the .messages.create() API.
+                client = self.bedrock_client if enterprise_provider == "bedrock" else self.anthropic_client
+                response = client.messages.create(
                     model=enterprise_model,
                     max_tokens=150,
                     temperature=self.config.enterprise_llm_temperature,
@@ -916,9 +918,9 @@ Output ONLY the message text."""
                 output_tokens = response.usage.output_tokens
             else:
                 # Fallback to OpenAI
-                print(f"[WARN] Initial outreach using OpenAI fallback (provider={enterprise_provider}, model={enterprise_model}). Set enterprise_llm_provider='bedrock' for Sonnet 4.5.")
+                print(f"[WARN] Initial outreach using OpenAI fallback (provider={enterprise_provider}, model={enterprise_model}). Set enterprise_llm_provider='bedrock' or 'anthropic' for Sonnet 4.5.")
                 response = self.client.responses.create(
-                    model=self.model,
+                    model=enterprise_model,
                     reasoning={"effort": self.reasoning_effort},
                     input=[
                         {"role": "system", "content": system_prompt},
