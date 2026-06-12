@@ -1013,20 +1013,10 @@ class BashAgent(BaseAgent):
             self.total_anthropic_fallbacks += len(self.last_anthropic_fallbacks)
 
     def _anthropic_no_tool_feedback(self, response: Any, assistant_content: Any) -> str:
-        """Feedback used when Anthropic returns text/refusal instead of a tool."""
-        stop_reason = getattr(response, 'stop_reason', '') or ''
+        """Feedback used when Anthropic returns text instead of a tool."""
         preview = self._anthropic_content_text(assistant_content).strip()
         if len(preview) > 1200:
             preview = preview[:1200] + "..."
-
-        if stop_reason == 'refusal':
-            return (
-                "Your previous Claude response was a refusal and did not call a tool. "
-                "This benchmark only requires safe business-simulator operations in the "
-                "local workspace. Do not attempt to answer the refused topic in prose. "
-                "Choose the next safe benchmark action and call one of the available tools. "
-                f"Refusal preview: {preview or '(no text)'}"
-            )
 
         return (
             "You must call a tool to proceed. If you need context, use read_file, "
