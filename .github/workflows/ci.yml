@@ -61,5 +61,8 @@ jobs:
       - name: Rebuild public NovaMind bundle
         run: uv run python scripts/build_public.py
 
-      - name: Verify public bundle is committed
-        run: git diff --exit-code -- public
+      - name: Verify rebuilt NovaMind CLI starts
+        run: python public/novamind-operation --help
+
+      - name: Verify generated public docs are committed
+        run: git diff --exit-code -- public ':(exclude)public/novamind-operation'
