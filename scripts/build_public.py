@@ -271,7 +271,7 @@ def _build_zipapp():
             source=str(staging),
             target=str(target),
             interpreter='/usr/bin/env python3',
-            compressed=True,
+            compressed=False,
         )
 
         # chmod +x
