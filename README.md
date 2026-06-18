@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://ceobench.com">🌐 Website</a> &nbsp;|&nbsp;
-  <a href="#">📄 Paper</a> &nbsp;|&nbsp;
+  <a href="https://arxiv.org/pdf/2606.18543">📄 Paper</a> &nbsp;|&nbsp;
   <a href="https://ceobench.com/trajectory-viewer/">📊 Trajectory Viewer</a>
 </p>
 
@@ -245,5 +245,6 @@ ceobench-src/
   title  = {CEO-Bench: Can Agents Play the Long Game?},
   author = {<authors>},
   year   = {2026},
+  url    = {https://arxiv.org/pdf/2606.18543},
 }
 ```
