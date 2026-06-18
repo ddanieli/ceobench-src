@@ -241,10 +241,13 @@ ceobench-src/
 ## 📜 Citation
 
 ```bibtex
-@article{ceobench2026,
-  title  = {CEO-Bench: Can Agents Play the Long Game?},
-  author = {<authors>},
-  year   = {2026},
-  url    = {https://arxiv.org/pdf/2606.18543},
+@misc{chen2026ceobenchagentsplaylong,
+  title={CEO-Bench: Can Agents Play the Long Game?},
+  author={Haozhe Chen and Karthik Narasimhan and Zhuang Liu},
+  year={2026},
+  eprint={2606.18543},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2606.18543},
 }
 ```
