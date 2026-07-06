@@ -4513,6 +4513,7 @@ class Simulator:
         """
         import json
         import math
+        import sys
         import numpy as np
         import traceback as _tb
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -4575,6 +4576,8 @@ class Simulator:
         # Use social_post_client (bedrock or direct anthropic) — both expose the same .messages.create() API
         bedrock_client = self.customer_simulator.social_post_client
         social_model = self.config.social_post_llm_model
+        social_provider = getattr(self.config, 'social_post_llm_provider', 'unknown')
+        client_name = type(bedrock_client).__name__ if bedrock_client is not None else 'None'
         viral_threshold = 0.6
 
         for row in rows:
@@ -4625,8 +4628,16 @@ class Simulator:
                             self.current_day, 'agent_social_judge',
                             in_tok, out_tok, model=social_model
                         )
-                    except Exception:
+                    except Exception as exc:
                         effect_by_group[gid] = 0.0
+                        print(
+                            f"[sim] agent post judge LLM failed for post_id={post_id} "
+                            f"group_id={gid} provider={social_provider} "
+                            f"model={social_model} client={client_name}: "
+                            f"{type(exc).__name__}: {exc}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
 
             # Compute views per group from effect scores
             # Linear 1x-3x below viral threshold, exponential 3x-100x above
