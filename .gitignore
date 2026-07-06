@@ -45,6 +45,7 @@ logs/
 # Cache
 .cache/
 *.cache
+.omx/
 
 # Checkpoints (runtime state, not tracked)
 checkpoint.json
