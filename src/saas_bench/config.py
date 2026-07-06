@@ -1,8 +1,10 @@
 """Configuration and constants for SaaS Bench."""
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Tuple
+
 import numpy as np
 
 
@@ -674,16 +676,30 @@ class BenchmarkConfig:
     #   - "anthropic": Direct Anthropic SDK; requires ANTHROPIC_API_KEY.
     #                  Use the public model name (e.g. "claude-haiku-4-5"). No AWS credentials needed.
     #   - "openai":    OpenAI Responses API; requires OPENAI_API_KEY.
-    social_post_llm_model: str = "claude-haiku-4-5"
-    social_post_llm_provider: str = "anthropic"  # "bedrock" | "anthropic" | "openai"
+    social_post_llm_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "SAAS_SOCIAL_POST_LLM_MODEL",
+            "claude-haiku-4-5",
+        )
+    )
+    social_post_llm_provider: str = field(
+        default_factory=lambda: os.environ.get("SAAS_SOCIAL_POST_LLM_PROVIDER", "anthropic")
+    )  # "bedrock" | "anthropic" | "openai"
     social_post_llm_temperature: float = 0.9  # Higher for creative variety
     social_post_llm_max_tokens: int = 1000
 
     # Enterprise Customer LLM (for negotiation responses, initial outreach).
     # Local Opus benchmark runs use direct Anthropic here so the simulator does
     # not require Bedrock credentials.
-    enterprise_llm_model: str = "claude-sonnet-4-5"
-    enterprise_llm_provider: str = "anthropic"  # "bedrock" | "anthropic" | "openai"
+    enterprise_llm_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "SAAS_ENTERPRISE_LLM_MODEL",
+            "claude-sonnet-4-5",
+        )
+    )
+    enterprise_llm_provider: str = field(
+        default_factory=lambda: os.environ.get("SAAS_ENTERPRISE_LLM_PROVIDER", "anthropic")
+    )  # "bedrock" | "anthropic" | "openai"
     enterprise_llm_temperature: float = 0.7
     enterprise_llm_max_tokens: int = 300
 
