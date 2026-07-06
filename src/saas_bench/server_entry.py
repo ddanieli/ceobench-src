@@ -32,6 +32,7 @@ from saas_bench.tools import AgentTools
 from saas_bench.shocks import ShockManager
 from saas_bench.event_logger import EventLogger
 from saas_bench.api_server import NovaMindAPIServer
+from saas_bench.completion import is_weekly_simulation_complete
 from saas_bench.db_protection import (
     protect_db,
     save_session_db,
@@ -340,10 +341,13 @@ def cmd_start_server(args, base: Path):
     # next-week response path. Drained on shutdown.
     async_saver = AsyncSaver(nmdb_path)
 
+    def _session_completed(day: int) -> bool:
+        return is_weekly_simulation_complete(day, total_days)
+
     # Day callback — save state after each day
     def _day_callback(day, dashboard):
         meta["current_day"] = day
-        meta["status"] = "running"
+        meta["status"] = "completed" if _session_completed(day) else "running"
         _session_meta_path(base, session_id).write_text(json.dumps(meta, indent=2))
         # Snapshot synchronously, queue encrypt to background worker.
         plain = snapshot_to_plain(conn, nmdb_path.parent)
@@ -370,7 +374,7 @@ def cmd_start_server(args, base: Path):
     _port_file(base, session_id).write_text(str(api_server.port))
 
     # Update metadata
-    meta["status"] = "running"
+    meta["status"] = "completed" if _session_completed(current_day) else "running"
     meta["port"] = api_server.port
     meta["pid"] = os.getpid()
     _session_meta_path(base, session_id).write_text(json.dumps(meta, indent=2))
@@ -402,7 +406,11 @@ def cmd_start_server(args, base: Path):
         except Exception:
             pass
         save_session_db(conn, nmdb_path)
-        meta["status"] = "stopped"
+        meta["status"] = (
+            "completed"
+            if _session_completed(int(meta.get("current_day", current_day) or 0))
+            else "stopped"
+        )
         meta.pop("port", None)
         meta.pop("pid", None)
         _session_meta_path(base, session_id).write_text(json.dumps(meta, indent=2))

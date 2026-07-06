@@ -525,6 +525,7 @@ class ReplayRunner:
                 day = status.get("day", week_num * 7)
                 subs = status.get("subscribers", 0)
                 timed_out = bool(status.get("timed_out"))
+                completed = bool(status.get("completed"))
                 bankrupt = bool(status.get("bankrupt"))
 
                 metric = {
@@ -537,6 +538,7 @@ class ReplayRunner:
                     "files_skipped": len(files_skipped),
                     "advance_err": advance_err,
                     "timed_out": timed_out,
+                    "completed": completed,
                     "bankrupt": bankrupt,
                 }
                 self._weekly_metrics.append(metric)
@@ -548,6 +550,7 @@ class ReplayRunner:
                     f"cash=${cash:>14,.0f} subs={subs:>7,} "
                     f"files={len(files_run):>2} ({advance_elapsed:.1f}s)"
                     + (f" ERR={advance_err}" if advance_err else "")
+                    + (" COMPLETED" if completed else "")
                     + (" BANKRUPT" if bankrupt else "")
                     + (" TIMEOUT" if timed_out else "")
                 )
@@ -555,10 +558,11 @@ class ReplayRunner:
                 week_log_handle.write(f"\n[week metric] {json.dumps(metric)}\n")
                 week_log_handle.close()
 
-                if bankrupt or timed_out or advance_err is not None:
+                if completed or bankrupt or timed_out or advance_err is not None:
                     print(
                         f"  Stopping early: "
-                        f"bankrupt={bankrupt} timed_out={timed_out} err={advance_err}"
+                        f"completed={completed} bankrupt={bankrupt} "
+                        f"timed_out={timed_out} err={advance_err}"
                     )
                     break
 

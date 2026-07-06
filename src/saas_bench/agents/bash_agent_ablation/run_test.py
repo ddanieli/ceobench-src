@@ -293,7 +293,13 @@ class BashAgentRunner:
         try:
             return self._http_get('/game-status')
         except Exception:
-            return {"day": 0, "cash": 0, "subscribers": 0, "timed_out": False}
+            return {
+                "day": 0,
+                "cash": 0,
+                "subscribers": 0,
+                "timed_out": False,
+                "completed": False,
+            }
 
     def _get_dashboard(self) -> str:
         """Get current dashboard via HTTP."""
@@ -1040,6 +1046,16 @@ __pycache__/
             # when agent uses next-week which advances 7 sim days per loop iteration)
             status = self._get_game_status()
             sim_day = status.get('day', day)
+            if status.get('completed'):
+                game_ended = True
+                game_outcome = 'completed'
+                _cash = status.get('cash', 0)
+                if verbose:
+                    print(
+                        f"\n✅ Simulation completed at sim day {sim_day} "
+                        f"(target: {self.total_days})"
+                    )
+                break
 
             if verbose:
                 print(f"\n{'='*40}")
@@ -1150,12 +1166,15 @@ __pycache__/
                 sim_day = status.get('day', sim_day)  # Update sim_day after potential next-week
                 self._commit_weeks_up_to(sim_day)  # Commit any sim-week boundary just crossed
 
-                # Check if simulation reached total_days (inside inner loop)
-                if sim_day >= self.total_days:
+                # Check if simulation reached terminal completion (inside inner loop)
+                if status.get('completed') or sim_day >= self.total_days:
                     game_ended = True
                     game_outcome = 'completed'
                     if verbose:
-                        print(f"\n✅ Simulation reached {sim_day} days (target: {self.total_days})")
+                        print(
+                        f"\n✅ Simulation completed at sim day {sim_day} "
+                        f"(target: {self.total_days})"
+                    )
                     break
 
                 if status.get('timed_out'):
@@ -1221,12 +1240,15 @@ __pycache__/
             _subs = status.get('subscribers', 0)
             _cash = status.get('cash', 0)
 
-            # Check if simulation reached total_days
-            if sim_day >= self.total_days:
+            # Check if simulation reached terminal completion
+            if status.get('completed') or sim_day >= self.total_days:
                 game_ended = True
                 game_outcome = 'completed'
                 if verbose:
-                    print(f"\n✅ Simulation reached {sim_day} days (target: {self.total_days})")
+                    print(
+                        f"\n✅ Simulation completed at sim day {sim_day} "
+                        f"(target: {self.total_days})"
+                    )
                 break
 
             # Per-day timing summary

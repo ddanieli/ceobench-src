@@ -26,6 +26,7 @@ _ORACLE_MODE: bool = os.environ.get("ORACLE_MODE") == "1"
 from .tools import AgentTools, ToolResult
 from .database import TABLE_DOCS
 from .environment import build_weekly_dashboard
+from .completion import is_weekly_simulation_complete
 
 
 # ---- Hidden columns / tables (same policy as python_exec sandbox) ----
@@ -698,11 +699,15 @@ class _APIHandler(BaseHTTPRequestHandler):
         if server.conn:
             cash = get_cash(server.conn)
             subs = get_active_subscriber_count(server.conn)
+        day = server.tools.current_day
+        total_days = server._configured_total_days()
         self._send_json({
-            "day": server.tools.current_day,
+            "day": day,
+            "total_days": total_days,
             "cash": cash,
             "subscribers": subs,
             "timed_out": server._step_day_timed_out,
+            "completed": server._is_complete(day),
         })
 
 
@@ -788,6 +793,10 @@ class NovaMindAPIServer:
         self._daily_scripts: Dict[str, str] = {}  # name -> content snapshot
         self._step_day_timed_out: bool = False  # Set when step_day exceeds timeout
 
+        # Completion is computed from tools.current_day and tools.config.total_days.
+        # Because /next-week advances exactly 7 days, the simulation is terminal
+        # once a further weekly step would exceed the configured day limit.
+
         # Per-query wall-clock deadline (monotonic seconds; 0 = disabled).
         # Set inside _handle_query before cursor.execute, cleared in finally.
         # The progress handler below reads this and aborts the SQL when exceeded
@@ -832,6 +841,58 @@ class NovaMindAPIServer:
     # Maximum allowed time for step_week before auto-quit (seconds)
     STEP_WEEK_TIMEOUT = 4200  # 7× longer than old per-day timeout
 
+    def _configured_total_days(self) -> int:
+        """Return the configured simulation day limit, or 0 if unavailable."""
+        config = getattr(self.tools, "config", None)
+        try:
+            return int(getattr(config, "total_days", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _is_complete(self, day: int) -> bool:
+        """Whether no further full /next-week step can fit within total_days."""
+        return is_weekly_simulation_complete(day, self._configured_total_days())
+
+    def _completion_message(self) -> str:
+        """Human-readable reason why no further weekly step can run."""
+        total_days = self._configured_total_days()
+        return (
+            "Simulation complete: /next-week was not advanced because "
+            f"the next weekly step would exceed total_days={total_days}."
+        )
+
+    def _completion_notice(self, day: int) -> str:
+        """Dashboard-safe completion notice for terminal responses."""
+        total_days = self._configured_total_days()
+        return (
+            f"Simulation complete at day {day}: no further weekly step can run "
+            f"without exceeding the configured total_days limit ({total_days})."
+        )
+
+    def _completion_dashboard(self, day: int, previous_dashboard: str = "") -> str:
+        """Dashboard text that preserves the normal week header shape."""
+        week = (day + 6) // 7
+        notice = (
+            f"=== Week {week} Dashboard (Day {day}) ===\n"
+            f"{self._completion_notice(day)}"
+        )
+        if previous_dashboard:
+            return f"{notice}\n\nLast dashboard:\n{previous_dashboard}"
+        return notice
+
+    def _completion_response(self, day: int) -> Dict[str, Any]:
+        """Return a stable terminal response without advancing the simulator."""
+        total_days = self._configured_total_days()
+        return {
+            "success": True,
+            "day": day,
+            "total_days": total_days,
+            "completed": True,
+            "terminal": True,
+            "dashboard": self._completion_dashboard(day, self._last_dashboard),
+            "message": self._completion_message(),
+        }
+
     # Hard server-side deadline for a single /query SQL execution. If exceeded,
     # the query is interrupted via the progress handler and server._lock is
     # released, so a stuck SQL can no longer wedge next-week (line 549 wedge).
@@ -863,6 +924,8 @@ class NovaMindAPIServer:
             if self.simulator is None:
                 return {"success": False, "error": "No simulator configured"}
             old_day = self.tools.current_day
+            if self._is_complete(old_day):
+                return self._completion_response(old_day)
 
         # Log rationale BEFORE stepping so it's attributed to the day the
         # decisions were made, not the post-step day.
@@ -954,17 +1017,27 @@ class NovaMindAPIServer:
             week = (new_day + 6) // 7
             dashboard = f"=== Week {week} Dashboard (Day {new_day}) ===\n(No dashboard data available)"
 
+        completed = self._is_complete(new_day)
+        if completed:
+            dashboard = f"{dashboard}\n\n{self._completion_notice(new_day)}"
+
         with self._lock:
             self._last_dashboard = dashboard
 
         if self.day_callback:
             self.day_callback(new_day, dashboard)
 
-        return {
+        result = {
             "success": True,
             "day": new_day,
+            "total_days": self._configured_total_days(),
+            "completed": completed,
+            "terminal": completed,
             "dashboard": dashboard,
         }
+        if completed:
+            result["message"] = self._completion_message()
+        return result
 
     @property
     def last_dashboard(self) -> str:

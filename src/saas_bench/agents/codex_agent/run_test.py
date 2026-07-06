@@ -183,7 +183,13 @@ class CodexCLIRunner:
         try:
             return self._http_get("/game-status")
         except Exception:
-            return {"day": 0, "cash": 0, "subscribers": 0, "timed_out": False}
+            return {
+                "day": 0,
+                "cash": 0,
+                "subscribers": 0,
+                "timed_out": False,
+                "completed": False,
+            }
 
     def _get_dashboard(self) -> str:
         try:
@@ -606,6 +612,7 @@ class CodexCLIRunner:
 
         status = self._get_game_status()
         sim_day = int(status.get("day", 0))
+        completed = bool(status.get("completed"))
         if verbose:
             print(f"\n{'='*60}")
             print(f"Codex Run — {self.run_id}")
@@ -617,9 +624,9 @@ class CodexCLIRunner:
             print(f"Start sim_day={sim_day} cash=${status.get('cash', 0):,.0f}")
             print(f"{'='*60}\n", flush=True)
 
-        game_outcome: Optional[str] = None
+        game_outcome: Optional[str] = "completed" if completed else None
 
-        while sim_day < self.total_days:
+        while not completed and sim_day < self.total_days:
             week_idx = sim_day // 7 + 1
             dashboard = self._get_dashboard()
             base_prompt = (
@@ -674,16 +681,25 @@ class CodexCLIRunner:
                     },
                 )
 
-                if new_sim_day > sim_day:
+                if new_sim_day > sim_day or new_status.get("completed"):
                     advanced = True
                     sim_day = new_sim_day
+                    completed = bool(new_status.get("completed"))
                     cash = new_status.get("cash", 0)
                     if verbose:
-                        print(
-                            f"  ✓ advanced to sim_day={sim_day} cash=${cash:,.0f}",
-                            flush=True,
-                        )
+                        if completed:
+                            print(
+                                f"  ✓ completed at sim_day={sim_day} cash=${cash:,.0f}",
+                                flush=True,
+                            )
+                        else:
+                            print(
+                                f"  ✓ advanced to sim_day={sim_day} cash=${cash:,.0f}",
+                                flush=True,
+                            )
                     self._commit_weeks_up_to(sim_day)
+                    if completed:
+                        game_outcome = "completed"
                     break
                 if new_status.get("timed_out"):
                     print(
@@ -718,8 +734,11 @@ class CodexCLIRunner:
             self._save_checkpoint(sim_day)
 
         if not game_outcome:
+            status = self._get_game_status()
+            completed = bool(status.get("completed"))
+            sim_day = int(status.get("day", sim_day))
             game_outcome = (
-                "completed" if sim_day >= self.total_days else "incomplete"
+                "completed" if completed or sim_day >= self.total_days else "incomplete"
             )
 
         return self._finalize(sim_day, game_outcome, verbose)
