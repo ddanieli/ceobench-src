@@ -4346,10 +4346,13 @@ class Simulator:
 
             elif result['type'] == 'macro':
                 # Macro economy post
-                if not result['success'] or not result['text']:
-                    continue  # Skip failed macro posts (no template fallback)
-
                 pmi = result['pmi']
+                content = result.get('text') if result.get('success') else None
+                if not content or not str(content).strip():
+                    content = self._generate_macro_post_template_content(
+                        result, use_macro_rng=False
+                    )
+
                 if pmi >= 55:
                     post_sentiment = 'positive'
                     likes = int(self.rng.integers(15, 90))
@@ -4366,7 +4369,7 @@ class Simulator:
                 virality = likes * 0.3 + shares * 0.7
                 add_social_media_post(
                     self.conn, self.current_day, result['customer_id'],
-                    post_sentiment, result['text'],
+                    post_sentiment, content,
                     likes, shares, virality, reputation_impact=0.0,
                     influence_score=0.0
                 )
@@ -4407,13 +4410,15 @@ class Simulator:
                 influence_score=inf_score
             )
 
-    def _generate_macro_posts_template(self, macro_work: list):
-        """Generate macro economy social media posts using templates (no LLM fallback).
+    def _generate_macro_post_template_content(
+        self, item: dict, *, use_macro_rng: bool = True
+    ) -> str:
+        """Choose macro economy post text from existing templates.
 
-        These posts represent external market commentary about macroeconomic conditions.
+        The template-only path keeps its historical _macro_rng draw by default.
+        Failed/empty LLM fallback can opt out so it does not perturb shared
+        macro randomness.
         """
-        from .database import add_social_media_post
-
         publication_templates = {
             'strong_expansion': [
                 "ISM PMI just came in at {pmi:.1f} — strong expansion territory. Tech budgets are growing, SaaS renewals looking solid.",
@@ -4470,19 +4475,34 @@ class Simulator:
             ],
         }
 
+        pmi = item.get('pmi', 50.0)
+        trend = item.get('trend', 'neutral')
+        macro_type = item.get('macro_type', 'batch')
+
+        if macro_type == 'publication':
+            templates = publication_templates.get(trend, publication_templates['neutral'])
+        else:
+            templates = batch_templates.get(trend, batch_templates['neutral'])
+
+        if use_macro_rng:
+            template_idx = int(self._macro_rng.integers(0, len(templates)))
+        else:
+            template_idx = 0
+
+        template = templates[template_idx]
+        return template.format(pmi=pmi) if '{pmi' in template else template
+
+    def _generate_macro_posts_template(self, macro_work: list):
+        """Generate macro economy social media posts using templates (no LLM fallback).
+
+        These posts represent external market commentary about macroeconomic conditions.
+        """
+        from .database import add_social_media_post
+
         for item in macro_work:
-            pmi = item.get('pmi', 50.0)
             trend = item.get('trend', 'neutral')
-            macro_type = item.get('macro_type', 'batch')
             customer_id = item.get('customer_id')
-
-            if macro_type == 'publication':
-                templates = publication_templates.get(trend, publication_templates['neutral'])
-            else:
-                templates = batch_templates.get(trend, batch_templates['neutral'])
-
-            template = templates[int(self._macro_rng.integers(0, len(templates)))]
-            content = template.format(pmi=pmi) if '{pmi' in template else template
+            content = self._generate_macro_post_template_content(item)
 
             # Determine sentiment from trend
             if trend in ('strong_expansion', 'expansion'):
@@ -7646,4 +7666,3 @@ Guidelines:
             cash=cash,
             mrr=mrr,
         )
-
